@@ -1,0 +1,5 @@
+data/
+tokens/
+config/sources.json
+__pycache__/
+.pytest_cache/

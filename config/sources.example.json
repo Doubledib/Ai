@@ -1,0 +1,16 @@
+{
+  "brands": [
+    {"name": "viceclips",  "angle": "funniest fails and chaos",        "daily_cap": 4,
+     "accounts": {"youtube": "@viceclips", "tiktok": "@viceclips", "instagram": "@viceclips", "facebook": "viceclips"}},
+    {"name": "leonidarp",  "angle": "best roleplay server moments",    "daily_cap": 4,
+     "accounts": {"youtube": "@leonidarp", "tiktok": "@leonidarp", "instagram": "@leonidarp", "facebook": "leonidarp"}},
+    {"name": "sixstunts",  "angle": "stunts, chases and clean driving", "daily_cap": 4,
+     "accounts": {"youtube": "@sixstunts", "tiktok": "@sixstunts", "instagram": "@sixstunts", "facebook": "sixstunts"}}
+  ],
+  "sources": [
+    {"name": "my-own-gameplay", "license": "own", "brand": "sixstunts", "credit": "@sixstunts"},
+    {"name": "example-streamer", "channel_id": "UCxxxxxxxxxxxxxxxxxxxxxx",
+     "license": "clipping_program", "license_ref": "https://whop.com/<campaign-url>",
+     "brand": "viceclips", "credit": "@examplestreamer"}
+  ]
+}

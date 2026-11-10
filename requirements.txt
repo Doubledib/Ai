@@ -1,0 +1,7 @@
+numpy
+yt-dlp
+faster-whisper
+anthropic
+google-api-python-client
+google-auth-oauthlib
+pytest
