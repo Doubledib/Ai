@@ -162,6 +162,9 @@
       <p class="muted">Plug the phone in and leave this page open with the screen on. Use “Dim screen” so it stays dark. If you lock the phone or switch apps, iOS turns the microphone off and listening pauses until you come back.</p>
       <p class="muted" style="margin-top:8px">Sound is checked on this phone and thrown away unless something is heard. Recordings and transcripts stay on this phone only.</p>
     </section>
+
+    <button class="ghost" id="updateBtn" hidden>A newer version is ready. Tap to load it</button>
+    <p class="muted" id="version" style="text-align:center"></p>
   </div>
 
   <!-- Recordings -->
@@ -200,6 +203,8 @@
 
 <script>
 "use strict";
+
+const APP_VERSION = "4";
 
 // ---- Tuning ----
 const PRE_ROLL_S = 1.5;      // audio kept in memory before a sound starts
@@ -896,6 +901,22 @@ if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
 }
 render();
 refresh();
+
+// Safari and home-screen apps hold on to old copies of the page, so ask the server directly.
+$("version").textContent = "Version " + APP_VERSION;
+async function checkForUpdate() {
+  if (S.running) return;
+  try {
+    const page = await (await fetch(location.pathname + "?check=" + Date.now(), { cache: "no-store" })).text();
+    const latest = (page.match(/const APP_VERSION = "([^"]+)"/) || [])[1];
+    if (latest && latest !== APP_VERSION) {
+      $("updateBtn").hidden = false;
+      $("updateBtn").onclick = () => location.replace(location.pathname + "?v=" + latest);
+    }
+  } catch {}
+}
+checkForUpdate();
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkForUpdate(); });
 </script>
 </body>
 </html>
