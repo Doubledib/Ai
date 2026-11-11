@@ -3,3 +3,8 @@ tokens/
 config/sources.json
 __pycache__/
 .pytest_cache/
+
+# Xcode
+xcuserdata/
+DerivedData/
+.DS_Store
