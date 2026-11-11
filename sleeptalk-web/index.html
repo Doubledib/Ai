@@ -26,15 +26,16 @@
   body {
     font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     padding: calc(env(safe-area-inset-top, 0px) + 20px) max(16px, env(safe-area-inset-right, 0px))
-             calc(env(safe-area-inset-bottom, 0px) + 32px) max(16px, env(safe-area-inset-left, 0px));
+             calc(env(safe-area-inset-bottom, 0px) + 96px) max(16px, env(safe-area-inset-left, 0px));
     -webkit-text-size-adjust: 100%;
   }
-  main { max-width: 480px; margin: 0 auto; display: grid; gap: 20px; }
+  main { max-width: 480px; margin: 0 auto; }
+  .view { display: grid; gap: 20px; }
   h1 { font-size: 28px; margin: 0; letter-spacing: -0.02em; }
   h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
   p { margin: 0; }
   .muted { color: var(--muted); font-size: 14px; }
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; min-width: 0; }
   .session { display: grid; gap: 16px; text-align: center; }
   #status { font-size: 18px; font-weight: 600; }
   #status.rec { color: var(--rec); }
@@ -52,14 +53,45 @@
   .row:first-of-type { border-top: 0; padding-top: 0; }
   .row:last-of-type { padding-bottom: 0; }
   select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; max-width: 55%; }
-  .clip { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .stack { display: grid; gap: 12px; }
+
+  /* Recordings */
+  .clip { padding: 12px 0; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+  .clip .top { display: flex; align-items: center; gap: 12px; }
   .clip .info { flex: 1; min-width: 0; }
   .clip .time { font-variant-numeric: tabular-nums; }
+  .said { font-size: 17px; overflow-wrap: anywhere; }
+  .said.none { color: var(--muted); font-size: 14px; }
   .icon { background: var(--bg); border: 1px solid var(--line); min-width: 44px; height: 44px; padding: 0 12px; font-size: 14px; }
   .icon.play { background: var(--accent); color: #14102e; border: 0; font-weight: 700; }
   .icon.danger { color: var(--rec); border-color: var(--rec); }
   .night { margin-top: 16px; }
   .night:first-child { margin-top: 0; }
+
+  /* Insights */
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; min-width: 0; }
+  .tile .num { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .tile .lbl { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .chart { display: grid; gap: 8px; }
+  .plot { display: flex; align-items: flex-end; gap: 2px; height: 120px; border-bottom: 1px solid var(--line); position: relative; }
+  .plot .max { position: absolute; top: 0; left: 0; font-size: 11px; color: var(--muted); }
+  .bar { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; background: none; border-radius: 0; padding: 0; }
+  .bar i { display: block; width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; opacity: 0.85; }
+  .bar.sel i, .bar:hover i { opacity: 1; background: #c3b8ff; }
+  .ticks { display: flex; gap: 2px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ticks span { flex: 1; min-width: 0; text-align: center; white-space: nowrap; overflow: visible; }
+  .readout { font-size: 14px; min-height: 20px; }
+  .quote { padding: 12px 0; border-top: 1px solid var(--line); }
+  .quote:first-of-type { border-top: 0; padding-top: 0; }
+
+  /* Tab bar */
+  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: rgba(11, 13, 23, 0.94); border-top: 1px solid var(--line);
+        padding: 8px max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 8px) max(16px, env(safe-area-inset-left, 0px)); }
+  nav div { max-width: 480px; margin: 0 auto; display: flex; gap: 8px; }
+  nav button { flex: 1; background: none; padding: 12px 4px; color: var(--muted); font-size: 14px; font-weight: 600; }
+  nav button[aria-selected="true"] { color: var(--fg); background: var(--surface); }
+
   #dim { position: fixed; inset: 0; background: #000; z-index: 10; color: #3a3a3a; text-align: center; }
   #dimInner { position: absolute; left: 0; right: 0; top: 40%; transition: top 2s; }
   #dimClock { font-size: 44px; font-weight: 200; font-variant-numeric: tabular-nums; }
@@ -69,53 +101,82 @@
 </head>
 <body>
 <main>
-  <header>
-    <h1>SleepTalk</h1>
-    <p class="muted">Saves a recording only when it hears a sound in the night.</p>
-  </header>
+  <!-- Tonight -->
+  <div class="view" id="view-tonight">
+    <header>
+      <h1>SleepTalk</h1>
+      <p class="muted">Saves a recording only when it hears a sound in the night.</p>
+    </header>
 
-  <section class="card session">
-    <p id="status">Start a session when you go to bed</p>
-    <div class="meter" id="meter" hidden><div id="level"></div></div>
-    <p class="muted" id="count" hidden></p>
-    <div class="notice" id="notice" hidden></div>
-    <button class="primary" id="toggle">Start sleep session</button>
-    <button class="ghost" id="dimBtn" hidden>Dim screen for the night</button>
-  </section>
+    <section class="card session">
+      <p id="status">Start a session when you go to bed</p>
+      <div class="meter" id="meter" hidden><div id="level"></div></div>
+      <p class="muted" id="count" hidden></p>
+      <div class="notice" id="notice" hidden></div>
+      <button class="primary" id="toggle">Start sleep session</button>
+      <button class="ghost" id="dimBtn" hidden>Dim screen for the night</button>
+    </section>
 
-  <section class="card" id="settings">
-    <h2>Settings</h2>
-    <div class="row">
-      <label for="sensitivity">Sensitivity</label>
-      <select id="sensitivity">
-        <option value="18">Low</option>
-        <option value="12" selected>Medium</option>
-        <option value="7">High</option>
-      </select>
-    </div>
-    <div class="row">
-      <label for="delay">Start listening after</label>
-      <select id="delay">
-        <option value="0">Right away</option>
-        <option value="15" selected>15 min</option>
-        <option value="30">30 min</option>
-        <option value="45">45 min</option>
-        <option value="60">60 min</option>
-      </select>
-    </div>
-  </section>
+    <section class="card" id="settings">
+      <h2>Settings</h2>
+      <div class="row">
+        <label for="sensitivity">Sensitivity</label>
+        <select id="sensitivity">
+          <option value="18">Low</option>
+          <option value="12" selected>Medium</option>
+          <option value="7">High</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="delay">Start listening after</label>
+        <select id="delay">
+          <option value="0">Right away</option>
+          <option value="15" selected>15 min</option>
+          <option value="30">30 min</option>
+          <option value="45">45 min</option>
+          <option value="60">60 min</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="lang">Write out what I say</label>
+        <select id="lang">
+          <option value="en" selected>English</option>
+          <option value="any">Any language</option>
+        </select>
+      </div>
+    </section>
 
-  <section class="card">
-    <h2>Recordings</h2>
-    <div id="clips"></div>
-  </section>
+    <section class="card">
+      <h2>Before you sleep</h2>
+      <p class="muted">Plug the phone in and leave this page open with the screen on. Use “Dim screen” so it stays dark. If you lock the phone or switch apps, iOS turns the microphone off and listening pauses until you come back.</p>
+      <p class="muted" style="margin-top:8px">Sound is checked on this phone and thrown away unless something is heard. Recordings and transcripts stay on this phone only.</p>
+    </section>
+  </div>
 
-  <section class="card">
-    <h2>Before you sleep</h2>
-    <p class="muted">Plug the phone in and leave this page open with the screen on. Use “Dim screen” so it stays dark. If you lock the phone or switch apps, iOS turns the microphone off and listening pauses until you come back.</p>
-    <p class="muted" style="margin-top:8px">Sound is checked on this phone and thrown away unless something is heard. Recordings stay on this phone only.</p>
-  </section>
+  <!-- Recordings -->
+  <div class="view" id="view-recordings" hidden>
+    <header><h1>Recordings</h1></header>
+    <section class="card stack">
+      <button class="ghost" id="transcribeBtn">Write out what I said</button>
+      <p class="muted" id="transcribeStatus">The first time, this downloads a speech model (about 40 MB for English, 80 MB for other languages). After that it runs on this phone.</p>
+    </section>
+    <section class="card"><div id="clips"></div></section>
+  </div>
+
+  <!-- Insights -->
+  <div class="view" id="view-insights" hidden>
+    <header><h1>Insights</h1></header>
+    <div id="insights" class="view"></div>
+  </div>
 </main>
+
+<nav>
+  <div role="tablist">
+    <button role="tab" data-view="tonight" aria-selected="true">Tonight</button>
+    <button role="tab" data-view="recordings" aria-selected="false">Recordings</button>
+    <button role="tab" data-view="insights" aria-selected="false">Insights</button>
+  </div>
+</nav>
 
 <div id="dim" hidden>
   <div id="dimInner">
@@ -137,44 +198,73 @@ const MIN_LOUD_S = 0.4;      // shorter than this is a click or bump
 const WARM_UP_S = 4;
 const ABS_FLOOR_DB = -55;
 const TARGET_RATE = 16000;
+const QUIET_WINDOW_MS = 5 * 60 * 1000;
+
+// Speech-to-text runs on the phone with Whisper (transformers.js).
+const SPEECH_LIB = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
+const SPEECH_MODELS = { en: "Xenova/whisper-tiny.en", any: "Xenova/whisper-base" };
+// Phrases Whisper tends to invent for noise that has no words in it.
+const NOT_WORDS = new Set(["you", "thank you", "thanks for watching", "bye", "so", "oh", "uh", "hmm", "mm"]);
 
 const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+};
 const fmtTime = (d, secs) => new Date(d).toLocaleTimeString([], secs
   ? { hour: "numeric", minute: "2-digit", second: "2-digit" } : { hour: "numeric", minute: "2-digit" });
+const fmtNight = (ms) => new Date(ms - 12 * 3600 * 1000)
+  .toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+function fmtDuration(ms) {
+  const min = Math.round(ms / 60000);
+  return min < 60 ? min + " min" : Math.floor(min / 60) + "h " + String(min % 60).padStart(2, "0") + "m";
+}
+const prefs = {
+  get() { try { return JSON.parse(localStorage.getItem("sleeptalk") || "{}"); } catch { return {}; } },
+  set(patch) { try { localStorage.setItem("sleeptalk", JSON.stringify({ ...prefs.get(), ...patch })); } catch {} },
+};
 
 // ---- Storage (IndexedDB) ----
 let dbPromise;
 function db() {
   dbPromise ||= new Promise((resolve, reject) => {
-    const req = indexedDB.open("sleeptalk", 1);
-    req.onupgradeneeded = () => req.result.createObjectStore("clips", { keyPath: "id" });
+    const req = indexedDB.open("sleeptalk", 2);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains("clips")) d.createObjectStore("clips", { keyPath: "id" });
+      if (!d.objectStoreNames.contains("sessions")) d.createObjectStore("sessions", { keyPath: "id" });
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
   return dbPromise;
 }
-async function store(mode, fn) {
+async function store(name, mode, fn) {
   const d = await db();
   return new Promise((resolve, reject) => {
-    const tx = d.transaction("clips", mode);
-    const req = fn(tx.objectStore("clips"));
+    const tx = d.transaction(name, mode);
+    const req = fn(tx.objectStore(name));
     tx.oncomplete = () => resolve(req && req.result);
     tx.onerror = tx.onabort = () => reject(tx.error);
   });
 }
+const allClips = () => store("clips", "readonly", (s) => s.getAll()).catch(() => []);
+const allSessions = () => store("sessions", "readonly", (s) => s.getAll()).catch(() => []);
 
 // ---- Session state ----
 const S = {
   running: false, stream: null, ctx: null, nodes: [], analyser: null, levelBuf: null,
   marginDb: 12, armTime: 0, sessionStart: 0, noiseFloor: -50, loudStreak: 0,
   preRoll: [], preRollS: 0, clip: null, lastBlock: 0, wakeLock: null,
-  hiddenAt: 0, pausedMs: 0, saved: 0, ratio: 3, outRate: 16000, watchdog: 0,
+  hiddenAt: 0, pausedMs: 0, saved: 0, ratio: 3, outRate: 16000, watchdog: 0, heartbeat: 0,
 };
 
 async function start() {
   S.marginDb = Number($("sensitivity").value);
   const delayMin = Number($("delay").value);
-  try { localStorage.setItem("sleeptalk", JSON.stringify({ s: $("sensitivity").value, d: $("delay").value })); } catch {}
+  prefs.set({ s: $("sensitivity").value, d: $("delay").value });
   $("player").pause();
   try {
     await openMic();
@@ -192,7 +282,18 @@ async function start() {
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   await lockScreenOn();
   S.watchdog = setInterval(checkAlive, 3000);
+  // Saved every minute so the night is still counted if iOS closes the page.
+  S.heartbeat = setInterval(saveSession, 60000);
+  saveSession();
   render();
+}
+
+function saveSession() {
+  if (!S.sessionStart) return Promise.resolve();
+  const paused = S.pausedMs + (S.hiddenAt ? Date.now() - S.hiddenAt : 0);
+  return store("sessions", "readwrite", (s) => s.put({
+    id: String(S.sessionStart), start: S.sessionStart, armed: S.armTime, end: Date.now(), pausedMs: paused,
+  })).catch(() => {});
 }
 
 async function openMic() {
@@ -231,8 +332,9 @@ function closeMic() {
   S.stream = S.ctx = S.analyser = null;
 }
 
-function stop() {
+async function stop() {
   clearInterval(S.watchdog);
+  clearInterval(S.heartbeat);
   closeMic();
   S.running = false;
   if (S.wakeLock) { S.wakeLock.release().catch(() => {}); S.wakeLock = null; }
@@ -241,8 +343,12 @@ function stop() {
     showNotice("Listening was paused for about " + Math.round(S.pausedMs / 60000) +
       " min tonight because the screen was off or another app was open.");
   }
+  await saveSession();
+  S.sessionStart = 0;
   render();
-  renderClips();
+  await refresh();
+  // Once the speech model is on the phone, write out the night without being asked.
+  if (prefs.get().modelReady === $("lang").value) transcribeAll();
 }
 
 // ---- Detection ----
@@ -302,10 +408,10 @@ function finishClip() {
   const record = {
     id: String(c.start), date: c.start, duration: c.seconds, peakDb: c.peak, wav: encodeWav(c.chunks, c.rate),
   };
-  store("readwrite", (s) => s.put(record)).then(() => {
+  store("clips", "readwrite", (s) => s.put(record)).then(() => {
     S.saved++;
     render();
-    if (!S.running) renderClips();
+    if (!S.running) refresh();
   }).catch(() => showNotice("A recording could not be saved. The phone may be out of storage."));
 }
 
@@ -341,6 +447,7 @@ document.addEventListener("visibilitychange", async () => {
   if (document.hidden) {
     S.hiddenAt = Date.now();
     finishClip();
+    saveSession();
   } else {
     if (S.hiddenAt) { S.pausedMs += Date.now() - S.hiddenAt; S.hiddenAt = 0; }
     await lockScreenOn();
@@ -370,7 +477,96 @@ async function checkAlive() {
   reopening = false;
 }
 
-// ---- UI ----
+// ---- Speech to text ----
+const WORKER_SOURCE = `
+  import { pipeline } from "${SPEECH_LIB}";
+  let asr = null, loaded = null;
+  self.onmessage = async (e) => {
+    const { id, audio, model, multilingual } = e.data;
+    try {
+      if (loaded !== model) {
+        asr = await pipeline("automatic-speech-recognition", model, {
+          dtype: "q8",
+          progress_callback: (p) => { if (p.status === "progress") self.postMessage({ type: "progress", file: p.file, loaded: p.loaded, total: p.total }); },
+        });
+        loaded = model;
+      }
+      const out = await asr(audio, multilingual ? { chunk_length_s: 30, task: "transcribe" } : { chunk_length_s: 30 });
+      self.postMessage({ type: "done", id, text: out.text || "" });
+    } catch (err) {
+      self.postMessage({ type: "error", id, message: String(err && err.message || err) });
+    }
+  };
+`;
+let speechWorker = null, transcribing = false;
+
+function wavToFloat16k(wav) {
+  const v = new DataView(wav), rate = v.getUint32(24, true), n = (wav.byteLength - 44) >> 1;
+  const src = new Float32Array(n);
+  for (let i = 0; i < n; i++) src[i] = v.getInt16(44 + i * 2, true) / 32768;
+  if (rate === TARGET_RATE) return src;
+  const out = new Float32Array(Math.floor(n * TARGET_RATE / rate)), step = rate / TARGET_RATE;
+  for (let i = 0; i < out.length; i++) {
+    const p = i * step, a = Math.floor(p), b = Math.min(a + 1, n - 1);
+    out[i] = src[a] + (src[b] - src[a]) * (p - a);
+  }
+  return out;
+}
+
+/** Keeps real words; drops sound tags like [BLANK_AUDIO] or (snoring) and stock filler. */
+function cleanTranscript(raw) {
+  const text = raw.replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*|♪/g, " ").replace(/\s+/g, " ").trim();
+  const bare = text.toLowerCase().replace(/[^\p{L}\p{N}' ]/gu, "").trim();
+  return !bare || NOT_WORDS.has(bare) ? "" : text;
+}
+
+function transcribeOne(clip, model, multilingual, onProgress) {
+  return new Promise((resolve, reject) => {
+    speechWorker.onmessage = (e) => {
+      if (e.data.type === "progress") onProgress(e.data);
+      else if (e.data.type === "done") resolve(e.data.text);
+      else reject(new Error(e.data.message));
+    };
+    speechWorker.onerror = (e) => reject(new Error(e.message || "The speech model could not be loaded."));
+    const audio = wavToFloat16k(clip.wav);
+    speechWorker.postMessage({ id: clip.id, audio, model, multilingual }, [audio.buffer]);
+  });
+}
+
+async function transcribeAll() {
+  if (transcribing || S.running) return;
+  const status = $("transcribeStatus");
+  const todo = (await allClips()).filter((c) => c.text === undefined).sort((a, b) => a.date - b.date);
+  if (!todo.length) { status.textContent = "Everything is already written out."; return; }
+  transcribing = true;
+  $("transcribeBtn").disabled = true;
+  const lang = $("lang").value, model = SPEECH_MODELS[lang];
+  try {
+    speechWorker ||= new Worker(URL.createObjectURL(new Blob([WORKER_SOURCE], { type: "text/javascript" })), { type: "module" });
+    const sizes = {};
+    for (let i = 0; i < todo.length; i++) {
+      status.textContent = "Writing out recording " + (i + 1) + " of " + todo.length + "…";
+      const raw = await transcribeOne(todo[i], model, lang === "any", (p) => {
+        sizes[p.file] = [p.loaded, p.total];
+        const done = Object.values(sizes).reduce((n, s) => n + s[0], 0);
+        const total = Object.values(sizes).reduce((n, s) => n + s[1], 0);
+        if (total) status.textContent = "Downloading the speech model… " + Math.round(100 * done / total) + "%";
+      });
+      prefs.set({ modelReady: lang });
+      const record = { ...todo[i], text: cleanTranscript(raw) };
+      await store("clips", "readwrite", (s) => s.put(record));
+      await refresh();
+    }
+    status.textContent = "Done. Recordings without words are marked “No words heard”.";
+  } catch (err) {
+    if (speechWorker) { speechWorker.terminate(); speechWorker = null; }
+    status.textContent = "Could not write out the recordings: " + err.message + " Check the internet connection and try again.";
+  }
+  transcribing = false;
+  $("transcribeBtn").disabled = false;
+}
+
+// ---- UI: session ----
 function showNotice(text) {
   $("notice").textContent = text;
   $("notice").hidden = !text;
@@ -381,7 +577,8 @@ function render() {
   $("toggle").textContent = on ? "Stop" : "Start sleep session";
   $("toggle").classList.toggle("stop", on);
   $("meter").hidden = $("count").hidden = $("dimBtn").hidden = !on;
-  $("sensitivity").disabled = $("delay").disabled = on;
+  $("sensitivity").disabled = $("delay").disabled = $("lang").disabled = on;
+  $("transcribeBtn").disabled = on || transcribing;
   if (!on) {
     $("status").textContent = "Start a session when you go to bed";
     $("status").classList.remove("rec");
@@ -407,6 +604,8 @@ function renderLevel(db) {
 }
 
 $("toggle").addEventListener("click", () => (S.running ? stop() : start()));
+$("lang").addEventListener("change", () => prefs.set({ l: $("lang").value }));
+$("transcribeBtn").addEventListener("click", transcribeAll);
 
 $("dimBtn").addEventListener("click", () => { $("dim").hidden = false; tickDim(); });
 $("dim").addEventListener("click", () => { $("dim").hidden = true; });
@@ -418,51 +617,51 @@ function tickDim() {
 }
 setInterval(tickDim, 30000);
 
-// ---- Recordings list ----
+document.querySelectorAll("nav button").forEach((tab) => tab.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
+  for (const name of ["tonight", "recordings", "insights"]) $("view-" + name).hidden = name !== tab.dataset.view;
+  window.scrollTo(0, 0);
+  refresh();
+}));
+
+// ---- UI: recordings ----
 let playingId = null, playUrl = null;
 
-async function renderClips() {
+async function refresh() {
+  const [clips, sessions] = await Promise.all([allClips(), allSessions()]);
+  renderClips(clips);
+  renderInsights(clips, sessions);
+}
+
+function renderClips(clips) {
   const box = $("clips");
-  let clips = [];
-  try { clips = await store("readonly", (s) => s.getAll()); } catch {}
   box.textContent = "";
   if (!clips.length) {
-    const p = document.createElement("p");
-    p.className = "muted";
-    p.textContent = "No recordings yet. Anything you say in your sleep will show up here.";
-    box.append(p);
+    box.append(el("p", "muted", "No recordings yet. Anything you say in your sleep will show up here."));
     return;
   }
   clips.sort((a, b) => b.date - a.date);
   const nights = new Map();
   for (const c of clips) {
     // Clips before noon belong to the night that started the evening before.
-    const key = new Date(c.date - 12 * 3600 * 1000).toDateString();
+    const key = fmtNight(c.date);
     if (!nights.has(key)) nights.set(key, []);
     nights.get(key).unshift(c);
   }
   for (const [key, list] of nights) {
-    const group = document.createElement("div");
-    group.className = "night";
-    const h = document.createElement("p");
-    h.className = "muted";
-    h.textContent = "Night of " + new Date(key).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
-    group.append(h);
+    const group = el("div", "night");
+    group.append(el("p", "muted", "Night of " + key));
     list.forEach((c) => group.append(clipRow(c)));
     box.append(group);
   }
 }
 
 function clipRow(c) {
-  const row = document.createElement("div");
-  row.className = "clip";
+  const row = el("div", "clip"), top = el("div", "top");
   const play = button(playingId === c.id ? "Stop" : "Play", "icon play", () => togglePlay(c));
   play.disabled = S.running;
-  const info = document.createElement("div");
-  info.className = "info";
-  info.innerHTML = '<div class="time"></div><div class="muted"></div>';
-  info.children[0].textContent = fmtTime(c.date, true);
-  info.children[1].textContent = Math.round(c.duration) + " s";
+  const info = el("div", "info");
+  info.append(el("div", "time", fmtTime(c.date, true)), el("div", "muted", Math.round(c.duration) + " s"));
   const share = button("Save", "icon", () => shareClip(c));
   const del = button("Delete", "icon", () => {
     if (!del.classList.contains("danger")) {
@@ -471,15 +670,17 @@ function clipRow(c) {
       return;
     }
     if (playingId === c.id) $("player").pause();
-    store("readwrite", (s) => s.delete(c.id)).then(renderClips);
+    store("clips", "readwrite", (s) => s.delete(c.id)).then(refresh);
   });
-  row.append(play, info, share, del);
+  top.append(play, info, share, del);
+  row.append(top);
+  if (c.text) row.append(el("p", "said", "“" + c.text + "”"));
+  else if (c.text === "") row.append(el("p", "said none", "No words heard"));
   return row;
 }
 
 function button(text, cls, onClick) {
-  const b = document.createElement("button");
-  b.textContent = text; b.className = cls;
+  const b = el("button", cls, text);
   b.addEventListener("click", onClick);
   return b;
 }
@@ -491,17 +692,17 @@ function togglePlay(c) {
   playUrl = URL.createObjectURL(new Blob([c.wav], { type: "audio/wav" }));
   player.src = playUrl;
   playingId = c.id;
-  player.play().catch(() => { playingId = null; renderClips(); });
-  renderClips();
+  player.play().catch(() => { playingId = null; refresh(); });
+  refresh();
 }
-$("player").addEventListener("pause", () => { playingId = null; renderClips(); });
-$("player").addEventListener("ended", () => { playingId = null; renderClips(); });
+$("player").addEventListener("pause", () => { playingId = null; refresh(); });
+$("player").addEventListener("ended", () => { playingId = null; refresh(); });
 
 async function shareClip(c) {
   const name = "sleeptalk-" + new Date(c.date).toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".wav";
   const file = new File([c.wav], name, { type: "audio/wav" });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file] }); } catch {}
+    try { await navigator.share({ files: [file], text: c.text || undefined }); } catch {}
     return;
   }
   const a = document.createElement("a");
@@ -510,18 +711,163 @@ async function shareClip(c) {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
+// ---- UI: insights ----
+let pickedNight = null;
+
+/** Everything shown for one night, worked out from its session record and clips. */
+function nightStats(session, clips) {
+  const from = session.armed, to = Math.max(session.end, from);
+  const mine = clips.filter((c) => c.date >= session.start && c.date <= to + 60000).sort((a, b) => a.date - b.date);
+  const listened = Math.max(0, to - from - (session.pausedMs || 0));
+  const transcribed = mine.length > 0 && mine.every((c) => c.text !== undefined);
+  const spoken = mine.filter((c) => c.text);
+
+  // Share of 5-minute windows with no sound in them.
+  const windows = Math.max(1, Math.ceil((to - from) / QUIET_WINDOW_MS));
+  const noisy = new Set();
+  for (const c of mine) {
+    const a = Math.floor((c.date - from) / QUIET_WINDOW_MS), b = Math.floor((c.date + c.duration * 1000 - from) / QUIET_WINDOW_MS);
+    for (let w = Math.max(0, a); w <= Math.min(windows - 1, b); w++) noisy.add(w);
+  }
+
+  // Longest gap between sounds, counting the start and end of the night.
+  let longestQuiet = 0, cursor = from;
+  for (const c of mine) {
+    longestQuiet = Math.max(longestQuiet, c.date - cursor);
+    cursor = Math.max(cursor, c.date + c.duration * 1000);
+  }
+  longestQuiet = Math.max(longestQuiet, to - cursor);
+
+  // One bar per clock hour.
+  const hours = [];
+  const first = new Date(from); first.setMinutes(0, 0, 0);
+  for (let t = first.getTime(); t < to || !hours.length; t += 3600000) {
+    hours.push({ t, n: mine.filter((c) => c.date >= t && c.date < t + 3600000).length });
+  }
+
+  return {
+    session, clips: mine, listened, transcribed, spoken, hours, longestQuiet,
+    quietShare: Math.round(100 * (1 - noisy.size / windows)),
+    recordedS: mine.reduce((n, c) => n + c.duration, 0),
+    talkedS: spoken.reduce((n, c) => n + c.duration, 0),
+  };
+}
+
+function renderInsights(clips, sessions) {
+  const box = $("insights");
+  box.textContent = "";
+  // The night in progress is not finished yet.
+  sessions = sessions.filter((s) => String(S.sessionStart) !== s.id && s.end > s.armed).sort((a, b) => b.start - a.start);
+  if (!sessions.length) {
+    const card = el("section", "card");
+    card.append(el("p", "muted", "No nights yet. After your first sleep session, this tab shows how often you spoke, how long the app listened and how quiet the night was."));
+    box.append(card);
+    return;
+  }
+  const session = sessions.find((s) => s.id === pickedNight) || sessions[0];
+  const st = nightStats(session, clips);
+
+  // Night picker
+  const picker = el("select");
+  picker.id = "nightPicker";
+  picker.style.maxWidth = "100%";
+  picker.setAttribute("aria-label", "Night");
+  for (const s of sessions) {
+    const o = el("option", null, "Night of " + fmtNight(s.start) + " · " + fmtTime(s.start) + " to " + fmtTime(s.end));
+    o.value = s.id; o.selected = s.id === session.id;
+    picker.append(o);
+  }
+  picker.addEventListener("change", () => { pickedNight = picker.value; refresh(); });
+  box.append(picker);
+
+  // Headline numbers
+  const tiles = el("div", "tiles");
+  const tile = (num, label) => { const t = el("div", "tile"); t.append(el("div", "num", num), el("div", "lbl", label)); tiles.append(t); };
+  tile(st.transcribed ? String(st.spoken.length) : "–", st.transcribed ? "times you spoke" : "times you spoke (write out the recordings to count)");
+  tile(String(st.clips.length), "sounds recorded");
+  tile(fmtDuration(st.listened), "listening");
+  tile(st.quietShare + "%", "of the night was quiet");
+  tile(fmtDuration(st.longestQuiet), "longest quiet stretch");
+  tile(Math.round(st.transcribed ? st.talkedS : st.recordedS) + " s", st.transcribed ? "spent talking" : "of sound saved");
+  box.append(tiles);
+
+  // Sounds by hour
+  box.append(barChart("Sounds through the night", st.hours.map((h) => ({
+    n: h.n,
+    tick: new Date(h.t).toLocaleTimeString([], { hour: "numeric" }).replace(/\s/g, "").toLowerCase(),
+    detail: fmtTime(h.t) + " to " + fmtTime(h.t + 3600000) + ": " + h.n + " sound" + (h.n === 1 ? "" : "s"),
+  })), "Tap a bar for the hour’s count."));
+
+  // What was said
+  if (st.spoken.length) {
+    const card = el("section", "card");
+    card.append(el("h2", null, "What you said"));
+    for (const c of st.spoken) {
+      const q = el("div", "quote");
+      q.append(el("div", "muted", fmtTime(c.date)), el("div", "said", "“" + c.text + "”"));
+      card.append(q);
+    }
+    box.append(card);
+  }
+
+  // Night-by-night trend
+  if (sessions.length > 1) {
+    const recent = sessions.slice(0, 14).reverse().map((s) => nightStats(s, clips));
+    box.append(barChart("Sounds per night", recent.map((r) => ({
+      n: r.clips.length,
+      tick: new Date(r.session.start - 12 * 3600 * 1000).toLocaleDateString([], { day: "numeric" }),
+      detail: "Night of " + fmtNight(r.session.start) + ": " + r.clips.length + " sound" + (r.clips.length === 1 ? "" : "s") +
+        (r.transcribed ? ", spoke " + r.spoken.length + " time" + (r.spoken.length === 1 ? "" : "s") : ""),
+    })), "Last " + recent.length + " nights. Tap a bar for details."));
+  }
+
+  if (session.pausedMs > 60000) {
+    box.append(el("p", "muted", "Listening was paused for about " + fmtDuration(session.pausedMs) + " this night because the screen was off or another app was open."));
+  }
+  box.append(el("p", "muted", "These numbers come from sound alone. A phone on the nightstand cannot tell sleep stages, so “quiet” means no sound was picked up, not that you slept deeply."));
+}
+
+function barChart(title, bars, hint) {
+  const card = el("section", "card chart");
+  card.append(el("h2", null, title));
+  const max = Math.max(1, ...bars.map((b) => b.n));
+  const plot = el("div", "plot"), ticks = el("div", "ticks"), readout = el("p", "readout muted", hint);
+  plot.append(el("span", "max", String(max)));
+  // Label every bar when they fit, otherwise every other or every third.
+  const every = Math.ceil(bars.length / 8);
+  bars.forEach((b, i) => {
+    const bar = el("button", "bar");
+    bar.setAttribute("aria-label", b.detail);
+    const fill = el("i");
+    fill.style.height = b.n ? Math.max(4, 100 * b.n / max) + "%" : "0";
+    bar.append(fill);
+    const show = () => {
+      plot.querySelectorAll(".sel").forEach((x) => x.classList.remove("sel"));
+      bar.classList.add("sel");
+      readout.textContent = b.detail;
+    };
+    bar.addEventListener("click", show);
+    bar.addEventListener("mouseenter", show);
+    plot.append(bar);
+    ticks.append(el("span", null, i % every === 0 ? b.tick : ""));
+  });
+  card.append(plot, ticks, readout);
+  return card;
+}
+
 // ---- Boot ----
-try {
-  const saved = JSON.parse(localStorage.getItem("sleeptalk") || "{}");
+{
+  const saved = prefs.get();
   if (saved.s) $("sensitivity").value = saved.s;
   if (saved.d) $("delay").value = saved.d;
-} catch {}
+  if (saved.l) $("lang").value = saved.l;
+}
 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
   showNotice("This page needs a secure (https) address and a browser with microphone support.");
   $("toggle").disabled = true;
 }
 render();
-renderClips();
+refresh();
 </script>
 </body>
 </html>
