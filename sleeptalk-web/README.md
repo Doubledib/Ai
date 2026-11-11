@@ -17,6 +17,15 @@ static host works, for example GitHub Pages serving this folder.
 - Recordings are WAV files kept in the browser's storage on the phone. Use **Save** to keep one
   in Files; Safari can clear site storage that has not been visited for a while.
 
+## Sensitivity
+
+The microphone runs for the whole session and the last 5 seconds are always held in memory, so
+each saved recording starts 5 seconds before the sound that set it off. **Maximum** saves
+anything 4 dB above the room's background, even a single short sound; lower settings need a
+louder, longer sound. While a session runs, the white line on the level bar is the trigger
+point. Insights has a "Was it listening?" card for each night: how long the microphone was
+really live, the loudest moment, and how many bumps were too short to keep.
+
 ## Stopping before your alarm
 
 Turn on **Stop by itself at** and pick a time. At that time the session ends: the recording in
