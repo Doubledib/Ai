@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SleepTalk">
+<meta name="theme-color" content="#0b0d17">
+<title>SleepTalk</title>
+<style>
+  :root {
+    --bg: #0b0d17;
+    --surface: #151829;
+    --line: #262a42;
+    --fg: #e6e4f0;
+    --muted: #8b8aa3;
+    --accent: #9d8cff;
+    --rec: #ff6b6b;
+    --warn: #f2c14e;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); }
+  body {
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: calc(env(safe-area-inset-top, 0px) + 20px) max(16px, env(safe-area-inset-right, 0px))
+             calc(env(safe-area-inset-bottom, 0px) + 32px) max(16px, env(safe-area-inset-left, 0px));
+    -webkit-text-size-adjust: 100%;
+  }
+  main { max-width: 480px; margin: 0 auto; display: grid; gap: 20px; }
+  h1 { font-size: 28px; margin: 0; letter-spacing: -0.02em; }
+  h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+  p { margin: 0; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+  .session { display: grid; gap: 16px; text-align: center; }
+  #status { font-size: 18px; font-weight: 600; }
+  #status.rec { color: var(--rec); }
+  .meter { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  #level { height: 100%; width: 0; background: var(--accent); transition: width 0.1s linear; }
+  #level.rec { background: var(--rec); }
+  button { font: inherit; color: inherit; border: 0; border-radius: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .primary { background: var(--accent); color: #14102e; font-weight: 700; font-size: 18px; padding: 16px; width: 100%; }
+  .primary.stop { background: var(--rec); color: #2b0c0c; }
+  .ghost { background: transparent; border: 1px solid var(--line); padding: 12px; width: 100%; }
+  .notice { border-left: 3px solid var(--warn); padding: 8px 12px; font-size: 14px; text-align: left; background: rgba(242, 193, 78, 0.08); border-radius: 4px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; padding-top: 0; }
+  .row:last-of-type { padding-bottom: 0; }
+  select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; max-width: 55%; }
+  .clip { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .clip .info { flex: 1; min-width: 0; }
+  .clip .time { font-variant-numeric: tabular-nums; }
+  .icon { background: var(--bg); border: 1px solid var(--line); min-width: 44px; height: 44px; padding: 0 12px; font-size: 14px; }
+  .icon.play { background: var(--accent); color: #14102e; border: 0; font-weight: 700; }
+  .icon.danger { color: var(--rec); border-color: var(--rec); }
+  .night { margin-top: 16px; }
+  .night:first-child { margin-top: 0; }
+  #dim { position: fixed; inset: 0; background: #000; z-index: 10; color: #3a3a3a; text-align: center; }
+  #dimInner { position: absolute; left: 0; right: 0; top: 40%; transition: top 2s; }
+  #dimClock { font-size: 44px; font-weight: 200; font-variant-numeric: tabular-nums; }
+  #dimNote { font-size: 13px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>SleepTalk</h1>
+    <p class="muted">Saves a recording only when it hears a sound in the night.</p>
+  </header>
+
+  <section class="card session">
+    <p id="status">Start a session when you go to bed</p>
+    <div class="meter" id="meter" hidden><div id="level"></div></div>
+    <p class="muted" id="count" hidden></p>
+    <div class="notice" id="notice" hidden></div>
+    <button class="primary" id="toggle">Start sleep session</button>
+    <button class="ghost" id="dimBtn" hidden>Dim screen for the night</button>
+  </section>
+
+  <section class="card" id="settings">
+    <h2>Settings</h2>
+    <div class="row">
+      <label for="sensitivity">Sensitivity</label>
+      <select id="sensitivity">
+        <option value="18">Low</option>
+        <option value="12" selected>Medium</option>
+        <option value="7">High</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="delay">Start listening after</label>
+      <select id="delay">
+        <option value="0">Right away</option>
+        <option value="15" selected>15 min</option>
+        <option value="30">30 min</option>
+        <option value="45">45 min</option>
+        <option value="60">60 min</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Recordings</h2>
+    <div id="clips"></div>
+  </section>
+
+  <section class="card">
+    <h2>Before you sleep</h2>
+    <p class="muted">Plug the phone in and leave this page open with the screen on. Use “Dim screen” so it stays dark. If you lock the phone or switch apps, iOS turns the microphone off and listening pauses until you come back.</p>
+    <p class="muted" style="margin-top:8px">Sound is checked on this phone and thrown away unless something is heard. Recordings stay on this phone only.</p>
+  </section>
+</main>
+
+<div id="dim" hidden>
+  <div id="dimInner">
+    <div id="dimClock"></div>
+    <div id="dimNote"></div>
+  </div>
+</div>
+
+<audio id="player" hidden></audio>
+
+<script>
+"use strict";
+
+// ---- Tuning ----
+const PRE_ROLL_S = 1.5;      // audio kept in memory before a sound starts
+const HANGOVER_S = 3;        // silence that ends a clip
+const MAX_CLIP_S = 300;
+const MIN_LOUD_S = 0.4;      // shorter than this is a click or bump
+const WARM_UP_S = 4;
+const ABS_FLOOR_DB = -55;
+const TARGET_RATE = 16000;
+
+const $ = (id) => document.getElementById(id);
+const fmtTime = (d, secs) => new Date(d).toLocaleTimeString([], secs
+  ? { hour: "numeric", minute: "2-digit", second: "2-digit" } : { hour: "numeric", minute: "2-digit" });
+
+// ---- Storage (IndexedDB) ----
+let dbPromise;
+function db() {
+  dbPromise ||= new Promise((resolve, reject) => {
+    const req = indexedDB.open("sleeptalk", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("clips", { keyPath: "id" });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+async function store(mode, fn) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const tx = d.transaction("clips", mode);
+    const req = fn(tx.objectStore("clips"));
+    tx.oncomplete = () => resolve(req && req.result);
+    tx.onerror = tx.onabort = () => reject(tx.error);
+  });
+}
+
+// ---- Session state ----
+const S = {
+  running: false, stream: null, ctx: null, nodes: [], analyser: null, levelBuf: null,
+  marginDb: 12, armTime: 0, sessionStart: 0, noiseFloor: -50, loudStreak: 0,
+  preRoll: [], preRollS: 0, clip: null, lastBlock: 0, wakeLock: null,
+  hiddenAt: 0, pausedMs: 0, saved: 0, ratio: 3, outRate: 16000, watchdog: 0,
+};
+
+async function start() {
+  S.marginDb = Number($("sensitivity").value);
+  const delayMin = Number($("delay").value);
+  try { localStorage.setItem("sleeptalk", JSON.stringify({ s: $("sensitivity").value, d: $("delay").value })); } catch {}
+  $("player").pause();
+  try {
+    await openMic();
+  } catch (err) {
+    showNotice(err && err.name === "NotAllowedError"
+      ? "Microphone access was refused. Allow it for this site in Settings › Apps › Safari › Microphone, then try again."
+      : "Could not start the microphone: " + (err && err.message || err));
+    return;
+  }
+  S.running = true;
+  S.sessionStart = Date.now();
+  S.armTime = Date.now() + Math.max(delayMin * 60, WARM_UP_S) * 1000;
+  S.noiseFloor = -50; S.loudStreak = 0; S.saved = 0; S.pausedMs = 0; S.hiddenAt = 0;
+  showNotice("");
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  await lockScreenOn();
+  S.watchdog = setInterval(checkAlive, 3000);
+  render();
+}
+
+async function openMic() {
+  S.stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true },
+  });
+  const ctx = S.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  await ctx.resume();
+  S.ratio = Math.max(1, Math.round(ctx.sampleRate / TARGET_RATE));
+  S.outRate = ctx.sampleRate / S.ratio;
+
+  const src = ctx.createMediaStreamSource(S.stream);
+  // Loudness is measured in the voice band so hum and rumble do not trigger clips.
+  const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 150;
+  const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 4000;
+  const analyser = S.analyser = ctx.createAnalyser(); analyser.fftSize = 4096;
+  S.levelBuf = new Float32Array(analyser.fftSize);
+  src.connect(hp); hp.connect(lp); lp.connect(analyser);
+
+  const proc = ctx.createScriptProcessor(4096, 1, 1);
+  const mute = ctx.createGain(); mute.gain.value = 0;
+  proc.onaudioprocess = (e) => onBlock(e.inputBuffer.getChannelData(0));
+  src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+  S.nodes = [src, hp, lp, analyser, proc, mute];
+  S.preRoll = []; S.preRollS = 0;
+  S.lastBlock = Date.now();
+}
+
+function closeMic() {
+  finishClip();
+  S.nodes.forEach((n) => { try { n.disconnect(); } catch {} });
+  if (S.nodes[4]) S.nodes[4].onaudioprocess = null;
+  S.nodes = [];
+  if (S.stream) S.stream.getTracks().forEach((t) => t.stop());
+  if (S.ctx) S.ctx.close().catch(() => {});
+  S.stream = S.ctx = S.analyser = null;
+}
+
+function stop() {
+  clearInterval(S.watchdog);
+  closeMic();
+  S.running = false;
+  if (S.wakeLock) { S.wakeLock.release().catch(() => {}); S.wakeLock = null; }
+  $("dim").hidden = true;
+  if (S.pausedMs > 60000) {
+    showNotice("Listening was paused for about " + Math.round(S.pausedMs / 60000) +
+      " min tonight because the screen was off or another app was open.");
+  }
+  render();
+  renderClips();
+}
+
+// ---- Detection ----
+function onBlock(samples) {
+  if (!S.running || !S.ctx) return;
+  S.lastBlock = Date.now();
+  const seconds = samples.length / S.ctx.sampleRate;
+
+  S.analyser.getFloatTimeDomainData(S.levelBuf);
+  let sum = 0;
+  for (let i = 0; i < S.levelBuf.length; i++) sum += S.levelBuf[i] * S.levelBuf[i];
+  const db = Math.max(20 * Math.log10(Math.max(Math.sqrt(sum / S.levelBuf.length), 1e-7)), -80);
+  const loud = db > Math.max(S.noiseFloor + S.marginDb, ABS_FLOOR_DB);
+  const pcm = toPcm16(samples);
+
+  if (!S.clip) {
+    // Follow the room's background level: drop quickly, rise slowly.
+    S.noiseFloor += (db - S.noiseFloor) * (db < S.noiseFloor ? 0.2 : 0.005);
+    S.preRoll.push(pcm); S.preRollS += seconds;
+    while (S.preRollS > PRE_ROLL_S && S.preRoll.length > 1) { S.preRoll.shift(); S.preRollS -= seconds; }
+    S.loudStreak = loud && Date.now() >= S.armTime ? S.loudStreak + 1 : 0;
+    if (S.loudStreak >= 2) {
+      S.clip = { start: Date.now() - S.preRollS * 1000, chunks: S.preRoll, seconds: S.preRollS,
+                 loudS: 0, silenceS: 0, peak: -80, rate: S.outRate };
+      S.preRoll = []; S.preRollS = 0; S.loudStreak = 0;
+    }
+  } else {
+    const c = S.clip;
+    c.chunks.push(pcm); c.seconds += seconds; c.peak = Math.max(c.peak, db);
+    if (loud) { c.loudS += seconds; c.silenceS = 0; } else { c.silenceS += seconds; }
+    if (c.silenceS >= HANGOVER_S) {
+      finishClip();
+    } else if (c.seconds >= MAX_CLIP_S) {
+      S.noiseFloor = db; // a constant new noise (fan, rain) becomes the background
+      finishClip();
+    }
+  }
+  renderLevel(db);
+}
+
+function toPcm16(samples) {
+  const r = S.ratio, n = Math.floor(samples.length / r), out = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    let v = 0;
+    for (let j = 0; j < r; j++) v += samples[i * r + j];
+    v = Math.max(-1, Math.min(1, v / r));
+    out[i] = v * 32767;
+  }
+  return out;
+}
+
+function finishClip() {
+  const c = S.clip;
+  if (!c) return;
+  S.clip = null;
+  if (c.loudS < MIN_LOUD_S) return;
+  const record = {
+    id: String(c.start), date: c.start, duration: c.seconds, peakDb: c.peak, wav: encodeWav(c.chunks, c.rate),
+  };
+  store("readwrite", (s) => s.put(record)).then(() => {
+    S.saved++;
+    render();
+    if (!S.running) renderClips();
+  }).catch(() => showNotice("A recording could not be saved. The phone may be out of storage."));
+}
+
+function encodeWav(chunks, rate) {
+  const samples = chunks.reduce((n, c) => n + c.length, 0);
+  const buf = new ArrayBuffer(44 + samples * 2), v = new DataView(buf);
+  const text = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  text(0, "RIFF"); v.setUint32(4, 36 + samples * 2, true); text(8, "WAVEfmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, Math.round(rate), true); v.setUint32(28, Math.round(rate) * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  text(36, "data"); v.setUint32(40, samples * 2, true);
+  let o = 44;
+  for (const c of chunks) for (let i = 0; i < c.length; i++, o += 2) v.setInt16(o, c[i], true);
+  return buf;
+}
+
+// ---- Staying alive ----
+async function lockScreenOn() {
+  if (!("wakeLock" in navigator)) {
+    showNotice("This browser cannot keep the screen on by itself. Set Settings › Display & Brightness › Auto-Lock to Never for tonight.");
+    return;
+  }
+  try {
+    S.wakeLock = await navigator.wakeLock.request("screen");
+  } catch {
+    showNotice("The screen could not be kept on. Set Settings › Display & Brightness › Auto-Lock to Never for tonight (Low Power Mode also blocks this).");
+  }
+}
+
+document.addEventListener("visibilitychange", async () => {
+  if (!S.running) return;
+  if (document.hidden) {
+    S.hiddenAt = Date.now();
+    finishClip();
+  } else {
+    if (S.hiddenAt) { S.pausedMs += Date.now() - S.hiddenAt; S.hiddenAt = 0; }
+    await lockScreenOn();
+    checkAlive();
+  }
+});
+
+// iOS can silently stop the microphone; reopen it when blocks stop arriving.
+let reopening = false;
+async function checkAlive() {
+  if (!S.running || document.hidden || reopening) return;
+  const track = S.stream && S.stream.getAudioTracks()[0];
+  const stalled = Date.now() - S.lastBlock > 3000;
+  if (!stalled && track && track.readyState === "live") return;
+  reopening = true;
+  try {
+    if (S.ctx && S.ctx.state !== "running" && track && track.readyState === "live") {
+      await S.ctx.resume();
+      S.lastBlock = Date.now();
+    } else {
+      closeMic();
+      await openMic();
+    }
+  } catch {
+    showNotice("The microphone stopped and could not be restarted. Tap Stop, then start again.");
+  }
+  reopening = false;
+}
+
+// ---- UI ----
+function showNotice(text) {
+  $("notice").textContent = text;
+  $("notice").hidden = !text;
+}
+
+function render() {
+  const on = S.running;
+  $("toggle").textContent = on ? "Stop" : "Start sleep session";
+  $("toggle").classList.toggle("stop", on);
+  $("meter").hidden = $("count").hidden = $("dimBtn").hidden = !on;
+  $("sensitivity").disabled = $("delay").disabled = on;
+  if (!on) {
+    $("status").textContent = "Start a session when you go to bed";
+    $("status").classList.remove("rec");
+    return;
+  }
+  const savedText = S.saved + " recording" + (S.saved === 1 ? "" : "s") + " saved tonight";
+  $("count").textContent = savedText;
+  $("dimNote").textContent = savedText + " · tap to wake";
+}
+
+let lastPaint = 0;
+function renderLevel(db) {
+  const now = Date.now();
+  if (now - lastPaint < 100) return;
+  lastPaint = now;
+  const rec = !!S.clip;
+  $("level").style.width = Math.min(Math.max((db + 70) / 60, 0), 1) * 100 + "%";
+  $("level").classList.toggle("rec", rec);
+  $("status").classList.toggle("rec", rec);
+  $("status").textContent = now < S.armTime
+    ? "Listening starts at " + fmtTime(S.armTime)
+    : rec ? "Recording a sound…" : "Listening. Nothing is being saved";
+}
+
+$("toggle").addEventListener("click", () => (S.running ? stop() : start()));
+
+$("dimBtn").addEventListener("click", () => { $("dim").hidden = false; tickDim(); });
+$("dim").addEventListener("click", () => { $("dim").hidden = true; });
+function tickDim() {
+  if ($("dim").hidden) return;
+  $("dimClock").textContent = fmtTime(Date.now());
+  // Move the clock a little so it does not sit on the same pixels all night.
+  $("dimInner").style.top = 25 + Math.random() * 40 + "%";
+}
+setInterval(tickDim, 30000);
+
+// ---- Recordings list ----
+let playingId = null, playUrl = null;
+
+async function renderClips() {
+  const box = $("clips");
+  let clips = [];
+  try { clips = await store("readonly", (s) => s.getAll()); } catch {}
+  box.textContent = "";
+  if (!clips.length) {
+    const p = document.createElement("p");
+    p.className = "muted";
+    p.textContent = "No recordings yet. Anything you say in your sleep will show up here.";
+    box.append(p);
+    return;
+  }
+  clips.sort((a, b) => b.date - a.date);
+  const nights = new Map();
+  for (const c of clips) {
+    // Clips before noon belong to the night that started the evening before.
+    const key = new Date(c.date - 12 * 3600 * 1000).toDateString();
+    if (!nights.has(key)) nights.set(key, []);
+    nights.get(key).unshift(c);
+  }
+  for (const [key, list] of nights) {
+    const group = document.createElement("div");
+    group.className = "night";
+    const h = document.createElement("p");
+    h.className = "muted";
+    h.textContent = "Night of " + new Date(key).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    group.append(h);
+    list.forEach((c) => group.append(clipRow(c)));
+    box.append(group);
+  }
+}
+
+function clipRow(c) {
+  const row = document.createElement("div");
+  row.className = "clip";
+  const play = button(playingId === c.id ? "Stop" : "Play", "icon play", () => togglePlay(c));
+  play.disabled = S.running;
+  const info = document.createElement("div");
+  info.className = "info";
+  info.innerHTML = '<div class="time"></div><div class="muted"></div>';
+  info.children[0].textContent = fmtTime(c.date, true);
+  info.children[1].textContent = Math.round(c.duration) + " s";
+  const share = button("Save", "icon", () => shareClip(c));
+  const del = button("Delete", "icon", () => {
+    if (!del.classList.contains("danger")) {
+      del.classList.add("danger"); del.textContent = "Sure?";
+      setTimeout(() => { del.classList.remove("danger"); del.textContent = "Delete"; }, 3000);
+      return;
+    }
+    if (playingId === c.id) $("player").pause();
+    store("readwrite", (s) => s.delete(c.id)).then(renderClips);
+  });
+  row.append(play, info, share, del);
+  return row;
+}
+
+function button(text, cls, onClick) {
+  const b = document.createElement("button");
+  b.textContent = text; b.className = cls;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function togglePlay(c) {
+  const player = $("player");
+  if (playingId === c.id) { player.pause(); return; }
+  if (playUrl) URL.revokeObjectURL(playUrl);
+  playUrl = URL.createObjectURL(new Blob([c.wav], { type: "audio/wav" }));
+  player.src = playUrl;
+  playingId = c.id;
+  player.play().catch(() => { playingId = null; renderClips(); });
+  renderClips();
+}
+$("player").addEventListener("pause", () => { playingId = null; renderClips(); });
+$("player").addEventListener("ended", () => { playingId = null; renderClips(); });
+
+async function shareClip(c) {
+  const name = "sleeptalk-" + new Date(c.date).toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".wav";
+  const file = new File([c.wav], name, { type: "audio/wav" });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); } catch {}
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(file); a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+// ---- Boot ----
+try {
+  const saved = JSON.parse(localStorage.getItem("sleeptalk") || "{}");
+  if (saved.s) $("sensitivity").value = saved.s;
+  if (saved.d) $("delay").value = saved.d;
+} catch {}
+if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+  showNotice("This page needs a secure (https) address and a browser with microphone support.");
+  $("toggle").disabled = true;
+}
+render();
+renderClips();
+</script>
+</body>
+</html>
