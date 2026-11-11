@@ -17,6 +17,12 @@ static host works, for example GitHub Pages serving this folder.
 - Recordings are WAV files kept in the browser's storage on the phone. Use **Save** to keep one
   in Files; Safari can clear site storage that has not been visited for a while.
 
+## Stopping before your alarm
+
+Turn on **Stop by itself at** and pick a time. At that time the session ends: the recording in
+progress is saved, the microphone and the keep-screen-on lock are released, and the night is
+closed for Insights. Set it a few minutes before your alarm.
+
 ## Transcripts and Insights
 
 - **Recordings › Write out what I said** turns each recording into text with Whisper

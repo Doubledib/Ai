@@ -54,6 +54,10 @@
   .row:last-of-type { padding-bottom: 0; }
   select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; max-width: 55%; }
   .stack { display: grid; gap: 12px; }
+  .inline { display: flex; align-items: center; gap: 12px; }
+  input[type="time"] { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  input[type="checkbox"] { width: 24px; height: 24px; accent-color: var(--accent); }
+  input:disabled { opacity: 0.4; }
 
   /* Recordings */
   .clip { padding: 12px 0; border-top: 1px solid var(--line); display: grid; gap: 8px; }
@@ -136,6 +140,13 @@
           <option value="45">45 min</option>
           <option value="60">60 min</option>
         </select>
+      </div>
+      <div class="row">
+        <label for="stopOn">Stop by itself at</label>
+        <span class="inline">
+          <input type="time" id="stopAt" value="06:30" aria-label="Stop time">
+          <input type="checkbox" id="stopOn">
+        </span>
       </div>
       <div class="row">
         <label for="lang">Write out what I say</label>
@@ -258,13 +269,13 @@ const S = {
   running: false, stream: null, ctx: null, nodes: [], analyser: null, levelBuf: null,
   marginDb: 12, armTime: 0, sessionStart: 0, noiseFloor: -50, loudStreak: 0,
   preRoll: [], preRollS: 0, clip: null, lastBlock: 0, wakeLock: null,
-  hiddenAt: 0, pausedMs: 0, saved: 0, ratio: 3, outRate: 16000, watchdog: 0, heartbeat: 0,
+  hiddenAt: 0, pausedMs: 0, saved: 0, stopAt: 0, ratio: 3, outRate: 16000, watchdog: 0, heartbeat: 0,
 };
 
 async function start() {
   S.marginDb = Number($("sensitivity").value);
   const delayMin = Number($("delay").value);
-  prefs.set({ s: $("sensitivity").value, d: $("delay").value });
+  prefs.set({ s: $("sensitivity").value, d: $("delay").value, stopOn: $("stopOn").checked, stopAt: $("stopAt").value });
   $("player").pause();
   try {
     await openMic();
@@ -278,21 +289,32 @@ async function start() {
   S.sessionStart = Date.now();
   S.armTime = Date.now() + Math.max(delayMin * 60, WARM_UP_S) * 1000;
   S.noiseFloor = -50; S.loudStreak = 0; S.saved = 0; S.pausedMs = 0; S.hiddenAt = 0;
+  S.stopAt = nextStopTime();
   showNotice("");
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   await lockScreenOn();
-  S.watchdog = setInterval(checkAlive, 3000);
+  S.watchdog = setInterval(checkAlive, 2000);
   // Saved every minute so the night is still counted if iOS closes the page.
   S.heartbeat = setInterval(saveSession, 60000);
   saveSession();
   render();
 }
 
-function saveSession() {
+/** The next time the clock shows the chosen stop time, or 0 when the setting is off. */
+function nextStopTime() {
+  const [h, m] = $("stopAt").value.split(":").map(Number);
+  if (!$("stopOn").checked || Number.isNaN(h) || Number.isNaN(m)) return 0;
+  const t = new Date();
+  t.setHours(h, m, 0, 0);
+  if (t.getTime() <= Date.now() + 60000) t.setDate(t.getDate() + 1);
+  return t.getTime();
+}
+
+function saveSession(endedAt) {
   if (!S.sessionStart) return Promise.resolve();
   const paused = S.pausedMs + (S.hiddenAt ? Date.now() - S.hiddenAt : 0);
   return store("sessions", "readwrite", (s) => s.put({
-    id: String(S.sessionStart), start: S.sessionStart, armed: S.armTime, end: Date.now(), pausedMs: paused,
+    id: String(S.sessionStart), start: S.sessionStart, armed: S.armTime, end: endedAt || Date.now(), pausedMs: paused,
   })).catch(() => {});
 }
 
@@ -332,7 +354,7 @@ function closeMic() {
   S.stream = S.ctx = S.analyser = null;
 }
 
-async function stop() {
+async function stop(scheduled) {
   clearInterval(S.watchdog);
   clearInterval(S.heartbeat);
   closeMic();
@@ -343,7 +365,8 @@ async function stop() {
     showNotice("Listening was paused for about " + Math.round(S.pausedMs / 60000) +
       " min tonight because the screen was off or another app was open.");
   }
-  await saveSession();
+  if (scheduled === true) showNotice("Stopped at " + fmtTime(S.stopAt) + " as set. The microphone is off.");
+  await saveSession(scheduled === true ? S.stopAt : 0);
   S.sessionStart = 0;
   render();
   await refresh();
@@ -458,6 +481,7 @@ document.addEventListener("visibilitychange", async () => {
 // iOS can silently stop the microphone; reopen it when blocks stop arriving.
 let reopening = false;
 async function checkAlive() {
+  if (S.running && S.stopAt && Date.now() >= S.stopAt) { stop(true); return; }
   if (!S.running || document.hidden || reopening) return;
   const track = S.stream && S.stream.getAudioTracks()[0];
   const stalled = Date.now() - S.lastBlock > 3000;
@@ -577,7 +601,8 @@ function render() {
   $("toggle").textContent = on ? "Stop" : "Start sleep session";
   $("toggle").classList.toggle("stop", on);
   $("meter").hidden = $("count").hidden = $("dimBtn").hidden = !on;
-  $("sensitivity").disabled = $("delay").disabled = $("lang").disabled = on;
+  $("sensitivity").disabled = $("delay").disabled = $("lang").disabled = $("stopOn").disabled = on;
+  $("stopAt").disabled = on || !$("stopOn").checked;
   $("transcribeBtn").disabled = on || transcribing;
   if (!on) {
     $("status").textContent = "Start a session when you go to bed";
@@ -585,7 +610,7 @@ function render() {
     return;
   }
   const savedText = S.saved + " recording" + (S.saved === 1 ? "" : "s") + " saved tonight";
-  $("count").textContent = savedText;
+  $("count").textContent = savedText + (S.stopAt ? " · stops at " + fmtTime(S.stopAt) : "");
   $("dimNote").textContent = savedText + " · tap to wake";
 }
 
@@ -604,6 +629,7 @@ function renderLevel(db) {
 }
 
 $("toggle").addEventListener("click", () => (S.running ? stop() : start()));
+$("stopOn").addEventListener("change", render);
 $("lang").addEventListener("change", () => prefs.set({ l: $("lang").value }));
 $("transcribeBtn").addEventListener("click", transcribeAll);
 
@@ -861,6 +887,8 @@ function barChart(title, bars, hint) {
   if (saved.s) $("sensitivity").value = saved.s;
   if (saved.d) $("delay").value = saved.d;
   if (saved.l) $("lang").value = saved.l;
+  if (saved.stopAt) $("stopAt").value = saved.stopAt;
+  $("stopOn").checked = !!saved.stopOn;
 }
 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
   showNotice("This page needs a secure (https) address and a browser with microphone support.");
