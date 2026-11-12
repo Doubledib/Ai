@@ -19,6 +19,7 @@
     --accent: #9d8cff;
     --rec: #ff6b6b;
     --warn: #f2c14e;
+    --quiet: #565a78;
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
@@ -89,6 +90,14 @@
   .readout { font-size: 14px; min-height: 20px; }
   .quote { padding: 12px 0; border-top: 1px solid var(--line); }
   .quote:first-of-type { border-top: 0; padding-top: 0; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+  .graphWrap { position: relative; }
+  #graphScroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  #graph { display: block; cursor: pointer; }
+  .ylab { position: absolute; right: 0; font-size: 11px; color: var(--muted); background: rgba(21, 24, 41, 0.8); padding: 0 4px; border-radius: 4px; pointer-events: none; font-variant-numeric: tabular-nums; }
+  #picked .clip { border-top: 0; padding: 0; }
 
   /* Tab bar */
   nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: rgba(11, 13, 23, 0.94); border-top: 1px solid var(--line);
@@ -173,11 +182,52 @@
   <!-- Recordings -->
   <div class="view" id="view-recordings" hidden>
     <header><h1>Recordings</h1></header>
-    <section class="card stack">
-      <button class="ghost" id="transcribeBtn">Write out what I said</button>
-      <p class="muted" id="transcribeStatus">The first time, this downloads a speech model (about 40 MB for English, 80 MB for other languages). After that it runs on this phone.</p>
+
+    <section class="card" id="recEmpty">
+      <p class="muted">No recordings yet. Anything heard in the night will show up here.</p>
     </section>
-    <section class="card"><div id="clips"></div></section>
+
+    <section class="card stack" id="recNightCard" hidden>
+      <select id="recNight" aria-label="Night" style="max-width:100%"></select>
+      <p class="muted" id="sortStatus"></p>
+      <button class="ghost" id="sortBtn" hidden>Sort the recordings by sound</button>
+    </section>
+
+    <section class="card chart" id="graphCard" hidden>
+      <h2>Loudness of each recording</h2>
+      <div class="legend muted">
+        <span><i style="background:var(--accent)"></i>Talking or voice</span>
+        <span><i style="background:var(--quiet)"></i>Other sounds</span>
+      </div>
+      <div class="graphWrap">
+        <span class="ylab" id="graphMax" style="top:0"></span>
+        <span class="ylab" id="graphMin" style="top:136px"></span>
+        <div id="graphScroll"><canvas id="graph"></canvas></div>
+      </div>
+      <p class="muted" id="graphHint">Each bar is one recording, in the order they happened. Tap a bar to hear it.</p>
+      <div id="picked"></div>
+      <button class="ghost" id="loudestBtn">Jump to the loudest</button>
+    </section>
+
+    <section class="card stack" id="transcribeCard" hidden>
+      <button class="ghost" id="transcribeBtn">Write out the talking</button>
+      <p class="muted" id="transcribeStatus">Turns recordings sorted as talking into text. The first time, this downloads a speech model (about 40 MB for English, 80 MB for other languages). After that it runs on this phone.</p>
+    </section>
+
+    <section class="card" id="listCard" hidden>
+      <div class="row">
+        <label for="recShow">Show</label>
+        <select id="recShow"></select>
+      </div>
+      <div class="row">
+        <label for="recOrder">Order</label>
+        <select id="recOrder">
+          <option value="time">By time</option>
+          <option value="loud">Loudest first</option>
+        </select>
+      </div>
+      <div id="clips" style="margin-top:12px"></div>
+    </section>
   </div>
 
   <!-- Insights -->
@@ -207,7 +257,7 @@
 <script>
 "use strict";
 
-const APP_VERSION = "6";
+const APP_VERSION = "7";
 
 // ---- Tuning ----
 const PRE_ROLL_S = 5;        // audio always held in memory, saved in front of each sound
@@ -256,11 +306,30 @@ const prefs = {
 let dbPromise;
 function db() {
   dbPromise ||= new Promise((resolve, reject) => {
-    const req = indexedDB.open("sleeptalk", 2);
+    const req = indexedDB.open("sleeptalk", 3);
     req.onupgradeneeded = () => {
       const d = req.result;
-      if (!d.objectStoreNames.contains("clips")) d.createObjectStore("clips", { keyPath: "id" });
+      const hadClips = d.objectStoreNames.contains("clips");
+      if (!hadClips) d.createObjectStore("clips", { keyPath: "id" });
       if (!d.objectStoreNames.contains("sessions")) d.createObjectStore("sessions", { keyPath: "id" });
+      if (!d.objectStoreNames.contains("audio")) {
+        // The sound itself lives apart from the list of recordings, so showing the list
+        // does not pull every recording into memory. Older recordings are moved across once.
+        const audio = d.createObjectStore("audio", { keyPath: "id" });
+        if (hadClips) {
+          req.transaction.objectStore("clips").openCursor().onsuccess = (e) => {
+            const cursor = e.target.result;
+            if (!cursor) return;
+            const clip = cursor.value;
+            if (clip.wav) {
+              audio.put({ id: clip.id, wav: clip.wav });
+              delete clip.wav;
+              cursor.update(clip);
+            }
+            cursor.continue();
+          };
+        }
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -276,6 +345,18 @@ async function store(name, mode, fn) {
     tx.onerror = tx.onabort = () => reject(tx.error);
   });
 }
+async function inBoth(fn) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const tx = d.transaction(["clips", "audio"], "readwrite");
+    fn(tx.objectStore("clips"), tx.objectStore("audio"));
+    tx.oncomplete = () => resolve();
+    tx.onerror = tx.onabort = () => reject(tx.error);
+  });
+}
+const saveClip = (clip, wav) => inBoth((clips, audio) => { clips.put(clip); audio.put({ id: clip.id, wav }); });
+const deleteClip = (id) => inBoth((clips, audio) => { clips.delete(id); audio.delete(id); });
+const getWav = (id) => store("audio", "readonly", (s) => s.get(id)).then((r) => r && r.wav).catch(() => null);
 const allClips = () => store("clips", "readonly", (s) => s.getAll()).catch(() => []);
 const allSessions = () => store("sessions", "readonly", (s) => s.getAll()).catch(() => []);
 
@@ -396,6 +477,7 @@ async function stop(scheduled) {
   S.sessionStart = 0;
   render();
   await refresh();
+  await sortAll();
   // Once the speech model is on the phone, write out the night without being asked.
   if (prefs.get().modelReady === $("lang").value) transcribeAll();
 }
@@ -461,10 +543,8 @@ function finishClip() {
   if (!c) return;
   S.clip = null;
   if (c.loudS < S.rule.minLoudS) { S.ignored++; return; }
-  const record = {
-    id: String(c.start), date: c.start, duration: c.seconds, peakDb: c.peak, wav: encodeWav(c.chunks, c.rate),
-  };
-  store("clips", "readwrite", (s) => s.put(record)).then(() => {
+  const record = { id: String(c.start), date: c.start, duration: c.seconds, peakDb: c.peak };
+  saveClip(record, encodeWav(c.chunks, c.rate)).then(() => {
     S.saved++;
     render();
     if (!S.running) refresh();
@@ -551,9 +631,95 @@ async function checkAlive() {
   reopening = false;
 }
 
+// ---- Telling sounds apart ----
+// YAMNet (bundled with the app) scores each second of audio against 521 everyday sounds.
+// Those are folded into the few groups that matter at night.
+const KINDS = {
+  talking: { label: "Talking", names: ["Speech", "Male speech, man speaking", "Female speech, woman speaking",
+    "Child speech, kid speaking", "Conversation", "Narration, monologue", "Babbling", "Whispering", "Shout", "Yell",
+    "Bellow", "Whoop", "Screaming", "Children shouting", "Chatter", "Singing", "Humming", "Chant", "Mantra"] },
+  voice: { label: "Voice sound", names: ["Laughter", "Giggle", "Chuckle, chortle", "Snicker", "Belly laugh", "Baby laughter",
+    "Crying, sobbing", "Whimper", "Wail, moan", "Sigh", "Groan", "Grunt"] },
+  snoring: { label: "Snoring", names: ["Snoring", "Snort"] },
+  breathing: { label: "Breathing", names: ["Breathing", "Wheeze", "Gasp", "Pant"] },
+  cough: { label: "Cough or sneeze", names: ["Cough", "Throat clearing", "Sneeze", "Sniff"] },
+  body: { label: "Fart, burp or hiccup", names: ["Fart", "Burping, eructation", "Hiccup", "Stomach rumble"] },
+  other: { label: "Other noise", names: [] },
+};
+const KIND_OF = {};
+for (const [kind, k] of Object.entries(KINDS)) for (const n of k.names) KIND_OF[n] = kind;
+const TALK_SCORE = 0.25;   // lower than the rest: sleep talk is quiet and mumbled
+const OTHER_SCORE = 0.2;
+
+let classifierPromise = null, sorting = false;
+function loadClassifier() {
+  classifierPromise ||= (async () => {
+    const mp = await import("./vendor/audio_bundle.mjs");
+    const files = await mp.FilesetResolver.forAudioTasks("./vendor/wasm");
+    return mp.AudioClassifier.createFromOptions(files, { baseOptions: { modelAssetPath: "./vendor/yamnet.tflite" } });
+  })();
+  classifierPromise.catch(() => { classifierPromise = null; });
+  return classifierPromise;
+}
+
+/** Works out what one recording most likely is. */
+function classify(classifier, wav) {
+  const best = {};      // highest score each sound reached at any moment in the clip
+  for (const window of classifier.classify(wavToFloat16k(wav), TARGET_RATE)) {
+    for (const c of window.classifications[0].categories) {
+      if (c.score > (best[c.categoryName] || 0)) best[c.categoryName] = c.score;
+    }
+  }
+  const scores = {};
+  for (const [name, score] of Object.entries(best)) {
+    const kind = KIND_OF[name];
+    if (kind && score > (scores[kind] || 0)) scores[kind] = score;
+  }
+  let kind = "other";
+  if ((scores.talking || 0) >= TALK_SCORE) kind = "talking";
+  else {
+    const [top, score] = Object.entries(scores).filter(([k]) => k !== "talking").sort((a, b) => b[1] - a[1])[0] || [];
+    if (score >= OTHER_SCORE) kind = top;
+  }
+  const heard = Object.entries(best).filter(([n, s]) => n !== "Silence" && s >= 0.1)
+    .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n]) => n);
+  return { kind, heard, talkScore: Math.round((scores.talking || 0) * 100) / 100 };
+}
+
+async function sortAll() {
+  if (sorting || S.running) return;
+  const todo = (await allClips()).filter((c) => !c.kind).sort((a, b) => b.date - a.date);
+  const status = $("sortStatus");
+  if (!todo.length) { $("sortBtn").hidden = true; return; }
+  sorting = true;
+  $("sortBtn").hidden = true;
+  // If the page dies part-way, do not start again by itself on the next open.
+  prefs.set({ sorting: true });
+  try {
+    status.textContent = "Getting ready to sort the recordings…";
+    const classifier = await loadClassifier();
+    for (let i = 0; i < todo.length && !S.running; i++) {
+      const wav = await getWav(todo[i].id);
+      const result = wav ? classify(classifier, wav) : { kind: "other", heard: [] };
+      await store("clips", "readwrite", (s) => s.put({ ...todo[i], ...result }));
+      status.textContent = "Sorting recordings by sound: " + (i + 1) + " of " + todo.length;
+      if (i % 10 === 9) await refresh();
+      await new Promise((r) => setTimeout(r));   // let the screen update
+    }
+    status.textContent = "";
+  } catch (err) {
+    status.textContent = "Could not sort the recordings: " + (err && err.message || err);
+    $("sortBtn").hidden = false;
+  }
+  prefs.set({ sorting: false });
+  sorting = false;
+  await refresh();
+}
+
 // ---- Speech to text ----
 const WORKER_SOURCE = `
-  import { pipeline } from "${SPEECH_LIB}";
+  import { pipeline, env } from "${SPEECH_LIB}";
+  env.backends.onnx.wasm.numThreads = 1;   // keeps memory low on phones
   let asr = null, loaded = null;
   self.onmessage = async (e) => {
     const { id, audio, model, multilingual } = e.data;
@@ -594,7 +760,7 @@ function cleanTranscript(raw) {
   return !bare || NOT_WORDS.has(bare) ? "" : text;
 }
 
-function transcribeOne(clip, model, multilingual, onProgress) {
+function transcribeOne(wav, model, multilingual, onProgress) {
   return new Promise((resolve, reject) => {
     speechWorker.onmessage = (e) => {
       if (e.data.type === "progress") onProgress(e.data);
@@ -602,16 +768,19 @@ function transcribeOne(clip, model, multilingual, onProgress) {
       else reject(new Error(e.data.message));
     };
     speechWorker.onerror = (e) => reject(new Error(e.message || "The speech model could not be loaded."));
-    const audio = wavToFloat16k(clip.wav);
-    speechWorker.postMessage({ id: clip.id, audio, model, multilingual }, [audio.buffer]);
+    const audio = wavToFloat16k(wav);
+    speechWorker.postMessage({ audio, model, multilingual }, [audio.buffer]);
   });
 }
 
+/** Only recordings sorted as talking are worth writing out; unsorted ones are included to be safe. */
+const needsWords = (c) => c.text === undefined && (!c.kind || c.kind === "talking");
+
 async function transcribeAll() {
-  if (transcribing || S.running) return;
+  if (transcribing || sorting || S.running) return;
   const status = $("transcribeStatus");
-  const todo = (await allClips()).filter((c) => c.text === undefined).sort((a, b) => a.date - b.date);
-  if (!todo.length) { status.textContent = "Everything is already written out."; return; }
+  const todo = (await allClips()).filter(needsWords).sort((a, b) => b.date - a.date);
+  if (!todo.length) { status.textContent = "Nothing left to write out."; return; }
   transcribing = true;
   $("transcribeBtn").disabled = true;
   const lang = $("lang").value, model = SPEECH_MODELS[lang];
@@ -620,24 +789,25 @@ async function transcribeAll() {
     const sizes = {};
     for (let i = 0; i < todo.length; i++) {
       status.textContent = "Writing out recording " + (i + 1) + " of " + todo.length + "…";
-      const raw = await transcribeOne(todo[i], model, lang === "any", (p) => {
+      const wav = await getWav(todo[i].id);
+      const raw = wav ? await transcribeOne(wav, model, lang === "any", (p) => {
         sizes[p.file] = [p.loaded, p.total];
         const done = Object.values(sizes).reduce((n, s) => n + s[0], 0);
         const total = Object.values(sizes).reduce((n, s) => n + s[1], 0);
         if (total) status.textContent = "Downloading the speech model… " + Math.round(100 * done / total) + "%";
-      });
+      }) : "";
       prefs.set({ modelReady: lang });
-      const record = { ...todo[i], text: cleanTranscript(raw) };
-      await store("clips", "readwrite", (s) => s.put(record));
+      await store("clips", "readwrite", (s) => s.put({ ...todo[i], text: cleanTranscript(raw) }));
       await refresh();
     }
-    status.textContent = "Done. Recordings without words are marked “No words heard”.";
+    status.textContent = "Done.";
   } catch (err) {
     if (speechWorker) { speechWorker.terminate(); speechWorker = null; }
     status.textContent = "Could not write out the recordings: " + err.message + " Check the internet connection and try again.";
   }
   transcribing = false;
   $("transcribeBtn").disabled = false;
+  refresh();
 }
 
 // ---- UI: session ----
@@ -653,7 +823,6 @@ function render() {
   $("meter").hidden = $("meterHint").hidden = $("count").hidden = $("dimBtn").hidden = !on;
   $("sensitivity").disabled = $("delay").disabled = $("lang").disabled = $("stopOn").disabled = on;
   $("stopAt").disabled = on || !$("stopOn").checked;
-  $("transcribeBtn").disabled = on || transcribing;
   if (!on) {
     $("status").textContent = "Start a session when you go to bed";
     $("status").classList.remove("rec");
@@ -684,6 +853,7 @@ $("toggle").addEventListener("click", () => (S.running ? stop() : start()));
 $("stopOn").addEventListener("change", render);
 $("lang").addEventListener("change", () => prefs.set({ l: $("lang").value }));
 $("transcribeBtn").addEventListener("click", transcribeAll);
+$("recOrder").value = "time";
 
 $("dimBtn").addEventListener("click", () => { $("dim").hidden = false; tickDim(); });
 $("dim").addEventListener("click", () => { $("dim").hidden = true; });
@@ -704,42 +874,135 @@ document.querySelectorAll("nav button").forEach((tab) => tab.addEventListener("c
 
 // ---- UI: recordings ----
 let playingId = null, playUrl = null;
+const view = { night: null, show: "all", order: "time", picked: null };
+// A moment of silence, used to get iOS's permission to play before the real audio has loaded.
+const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
+const loudness = (c) => Math.round(c.peakDb + 80);   // 0 is the quietest the microphone can register
 
 async function refresh() {
   const [clips, sessions] = await Promise.all([allClips(), allSessions()]);
-  renderClips(clips);
+  renderRecordings(clips);
   renderInsights(clips, sessions);
 }
 
-function renderClips(clips) {
+function renderRecordings(clips) {
+  const has = clips.length > 0;
+  $("recEmpty").hidden = has;
+  for (const id of ["recNightCard", "graphCard", "transcribeCard", "listCard"]) $(id).hidden = !has;
+  if (!has) return;
+
+  // Clips before noon belong to the night that started the evening before.
+  const nights = [...new Set(clips.sort((a, b) => b.date - a.date).map((c) => fmtNight(c.date)))];
+  if (!nights.includes(view.night)) view.night = nights[0];
+  fillSelect($("recNight"), nights.map((n) => [n, "Night of " + n]), view.night);
+  const night = clips.filter((c) => fmtNight(c.date) === view.night).sort((a, b) => a.date - b.date);
+
+  const counts = {};
+  for (const c of night) if (c.kind) counts[c.kind] = (counts[c.kind] || 0) + 1;
+  const options = [["all", "Everything (" + night.length + ")"]];
+  for (const [kind, k] of Object.entries(KINDS)) if (counts[kind]) options.push([kind, k.label + " (" + counts[kind] + ")"]);
+  if (!options.some((o) => o[0] === view.show)) view.show = "all";
+  fillSelect($("recShow"), options, view.show);
+
+  const shown = view.show === "all" ? night : night.filter((c) => c.kind === view.show);
+  if (!shown.some((c) => c.id === view.picked)) view.picked = null;
+  const unsorted = clips.filter((c) => !c.kind).length;
+  $("sortBtn").hidden = sorting || S.running || !unsorted;
+  if (!sorting && !unsorted) $("sortStatus").textContent = "";
+  const waiting = clips.filter(needsWords).length;
+  $("transcribeBtn").textContent = waiting ? "Write out the talking (" + waiting + ")" : "Write out the talking";
+  $("transcribeBtn").disabled = transcribing || sorting || S.running || !waiting;
+
+  drawGraph(shown);
+  const picked = shown.find((c) => c.id === view.picked);
+  $("picked").textContent = "";
+  if (picked) $("picked").append(clipRow(picked));
+  $("graphHint").hidden = !!picked;
+  $("loudestBtn").hidden = shown.length < 2;
+
   const box = $("clips");
   box.textContent = "";
-  if (!clips.length) {
-    box.append(el("p", "muted", "No recordings yet. Anything you say in your sleep will show up here."));
-    return;
-  }
-  clips.sort((a, b) => b.date - a.date);
-  const nights = new Map();
-  for (const c of clips) {
-    // Clips before noon belong to the night that started the evening before.
-    const key = fmtNight(c.date);
-    if (!nights.has(key)) nights.set(key, []);
-    nights.get(key).unshift(c);
-  }
-  for (const [key, list] of nights) {
-    const group = el("div", "night");
-    group.append(el("p", "muted", "Night of " + key));
-    list.forEach((c) => group.append(clipRow(c)));
-    box.append(group);
+  const list = view.order === "loud" ? [...shown].sort((a, b) => b.peakDb - a.peakDb) : shown;
+  list.forEach((c) => box.append(clipRow(c)));
+}
+
+function fillSelect(select, options, value) {
+  select.textContent = "";
+  for (const [v, text] of options) {
+    const o = el("option", null, text);
+    o.value = v; o.selected = v === value;
+    select.append(o);
   }
 }
+
+// One bar per recording, in the order they happened. Tap a bar to pick that recording.
+let graphClips = [], graphStep = 4;
+function drawGraph(clips) {
+  graphClips = clips;
+  const canvas = $("graph"), wrap = $("graphScroll");
+  const width = wrap.clientWidth || 320, height = 170, plot = 150;
+  graphStep = Math.max(4, Math.min(28, Math.floor(width / Math.max(1, clips.length))));
+  const w = Math.max(width, clips.length * graphStep), dpr = window.devicePixelRatio || 1;
+  canvas.style.width = w + "px"; canvas.style.height = height + "px";
+  canvas.width = w * dpr; canvas.height = height * dpr;
+  const g = canvas.getContext("2d");
+  g.scale(dpr, dpr);
+  g.clearRect(0, 0, w, height);
+  if (!clips.length) return;
+  const css = getComputedStyle(document.documentElement);
+  const color = (name) => css.getPropertyValue(name).trim();
+  const hi = Math.max(...clips.map(loudness)), lo = Math.min(...clips.map(loudness)) - 3;
+  $("graphMax").textContent = hi + " dB";
+  $("graphMin").textContent = lo + " dB";
+  g.fillStyle = color("--line");
+  g.fillRect(0, plot, w, 1);
+  g.font = "11px -apple-system, sans-serif";
+  let lastHour = -1, lastLabelX = -100;
+  clips.forEach((c, i) => {
+    const x = i * graphStep, h = Math.max(3, (loudness(c) - lo) / Math.max(1, hi - lo) * (plot - 4));
+    const isVoice = c.kind === "talking" || c.kind === "voice";
+    g.fillStyle = c.id === view.picked ? color("--fg") : isVoice ? color("--accent") : color("--quiet");
+    g.beginPath();
+    g.roundRect(x, plot - h, graphStep - 1, h, [Math.min(4, (graphStep - 1) / 2), Math.min(4, (graphStep - 1) / 2), 0, 0]);
+    g.fill();
+    const hour = new Date(c.date).getHours();
+    if (hour !== lastHour && x - lastLabelX > 44) {
+      g.fillStyle = color("--muted");
+      g.fillText(new Date(c.date).toLocaleTimeString([], { hour: "numeric" }).replace(/\s/g, "").toLowerCase(), x, height - 4);
+      lastLabelX = x;
+    }
+    lastHour = hour;
+  });
+}
+
+function pickClip(id, scrollIntoView) {
+  view.picked = id;
+  refresh().then(() => {
+    if (!scrollIntoView) return;
+    const i = graphClips.findIndex((c) => c.id === id), wrap = $("graphScroll");
+    wrap.scrollLeft = Math.max(0, i * graphStep - wrap.clientWidth / 2);
+  });
+}
+$("graph").addEventListener("click", (e) => {
+  const c = graphClips[Math.floor(e.offsetX / graphStep)];
+  if (c) pickClip(c.id);
+});
+$("loudestBtn").addEventListener("click", () => {
+  if (graphClips.length) pickClip(graphClips.reduce((a, b) => (b.peakDb > a.peakDb ? b : a)).id, true);
+});
+$("recNight").addEventListener("change", () => { view.night = $("recNight").value; view.picked = null; refresh(); });
+$("recShow").addEventListener("change", () => { view.show = $("recShow").value; refresh(); });
+$("recOrder").addEventListener("change", () => { view.order = $("recOrder").value; refresh(); });
+$("sortBtn").addEventListener("click", sortAll);
+window.addEventListener("resize", () => { if (!$("view-recordings").hidden) drawGraph(graphClips); });
 
 function clipRow(c) {
   const row = el("div", "clip"), top = el("div", "top");
   const play = button(playingId === c.id ? "Stop" : "Play", "icon play", () => togglePlay(c));
   play.disabled = S.running;
   const info = el("div", "info");
-  info.append(el("div", "time", fmtTime(c.date, true)), el("div", "muted", Math.round(c.duration) + " s"));
+  info.append(el("div", "time", fmtTime(c.date, true)),
+    el("div", "muted", [c.kind ? KINDS[c.kind].label : "Not sorted yet", Math.round(c.duration) + " s", loudness(c) + " dB"].join(" · ")));
   const share = button("Save", "icon", () => shareClip(c));
   const del = button("Delete", "icon", () => {
     if (!del.classList.contains("danger")) {
@@ -748,12 +1011,13 @@ function clipRow(c) {
       return;
     }
     if (playingId === c.id) $("player").pause();
-    store("clips", "readwrite", (s) => s.delete(c.id)).then(refresh);
+    deleteClip(c.id).then(refresh);
   });
   top.append(play, info, share, del);
   row.append(top);
   if (c.text) row.append(el("p", "said", "“" + c.text + "”"));
-  else if (c.text === "") row.append(el("p", "said none", "No words heard"));
+  else if (c.text === "") row.append(el("p", "said none", "No words made out"));
+  else if (c.kind && c.kind !== "talking" && c.heard && c.heard.length) row.append(el("p", "said none", "Sounds like: " + c.heard.join(", ").toLowerCase()));
   return row;
 }
 
@@ -763,22 +1027,34 @@ function button(text, cls, onClick) {
   return b;
 }
 
-function togglePlay(c) {
+async function togglePlay(c) {
   const player = $("player");
   if (playingId === c.id) { player.pause(); return; }
+  // Start something inside the tap itself, or iOS refuses to play once the audio has loaded.
+  player.src = SILENT_WAV;
+  player.play().catch(() => {});
+  const wav = await getWav(c.id);
+  if (!wav) return;
   if (playUrl) URL.revokeObjectURL(playUrl);
-  playUrl = URL.createObjectURL(new Blob([c.wav], { type: "audio/wav" }));
+  playUrl = URL.createObjectURL(new Blob([wav], { type: "audio/wav" }));
   player.src = playUrl;
   playingId = c.id;
   player.play().catch(() => { playingId = null; refresh(); });
   refresh();
 }
-$("player").addEventListener("pause", () => { playingId = null; refresh(); });
-$("player").addEventListener("ended", () => { playingId = null; refresh(); });
+function playbackEnded() {
+  if ($("player").src === SILENT_WAV || !playingId) return;
+  playingId = null;
+  refresh();
+}
+$("player").addEventListener("pause", playbackEnded);
+$("player").addEventListener("ended", playbackEnded);
 
 async function shareClip(c) {
+  const wav = await getWav(c.id);
+  if (!wav) return;
   const name = "sleeptalk-" + new Date(c.date).toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".wav";
-  const file = new File([c.wav], name, { type: "audio/wav" });
+  const file = new File([wav], name, { type: "audio/wav" });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], text: c.text || undefined }); } catch {}
     return;
@@ -799,8 +1075,11 @@ function nightStats(session, clips) {
   const span = Math.max(0, to - from);
   // Newer nights record how much audio actually reached the app; older ones only the clock time.
   const listened = session.heardS != null ? Math.min(span, session.heardS * 1000) : Math.max(0, span - (session.pausedMs || 0));
-  const transcribed = mine.length > 0 && mine.every((c) => c.text !== undefined);
-  const spoken = mine.filter((c) => c.text);
+  // "Known" once every recording has been sorted by sound or written out.
+  const transcribed = mine.length > 0 && mine.every((c) => c.kind || c.text !== undefined);
+  const spoken = mine.filter((c) => c.text || (c.text === undefined && c.kind === "talking"));
+  const kinds = {};
+  for (const c of mine) if (c.kind) kinds[c.kind] = (kinds[c.kind] || 0) + 1;
 
   // Share of 5-minute windows with no sound in them.
   const windows = Math.max(1, Math.ceil((to - from) / QUIET_WINDOW_MS));
@@ -826,7 +1105,7 @@ function nightStats(session, clips) {
   }
 
   return {
-    session, clips: mine, listened, span, transcribed, spoken, hours, longestQuiet,
+    session, clips: mine, listened, span, transcribed, kinds, spoken, hours, longestQuiet,
     quietShare: Math.round(100 * (1 - noisy.size / windows)),
     recordedS: mine.reduce((n, c) => n + c.duration, 0),
     talkedS: spoken.reduce((n, c) => n + c.duration, 0),
@@ -863,7 +1142,7 @@ function renderInsights(clips, sessions) {
   // Headline numbers
   const tiles = el("div", "tiles");
   const tile = (num, label) => { const t = el("div", "tile"); t.append(el("div", "num", num), el("div", "lbl", label)); tiles.append(t); };
-  tile(st.transcribed ? String(st.spoken.length) : "–", st.transcribed ? "times you spoke" : "times you spoke (write out the recordings to count)");
+  tile(st.transcribed ? String(st.spoken.length) : "–", st.transcribed ? "times you spoke" : "times you spoke (still sorting the recordings)");
   tile(String(st.clips.length), "sounds recorded");
   tile(fmtDuration(st.listened), "listening");
   tile(st.quietShare + "%", "of the night was quiet");
@@ -878,11 +1157,25 @@ function renderInsights(clips, sessions) {
     detail: fmtTime(h.t) + " to " + fmtTime(h.t + 3600000) + ": " + h.n + " sound" + (h.n === 1 ? "" : "s"),
   })), "Tap a bar for the hour’s count."));
 
+  // What kinds of sound
+  if (Object.keys(st.kinds).length) {
+    const card = el("section", "card");
+    card.append(el("h2", null, "What it heard"));
+    for (const [kind, k] of Object.entries(KINDS)) {
+      if (!st.kinds[kind]) continue;
+      const row = el("div", "row");
+      row.append(el("span", null, k.label), el("span", "muted", String(st.kinds[kind])));
+      card.append(row);
+    }
+    box.append(card);
+  }
+
   // What was said
-  if (st.spoken.length) {
+  const said = st.spoken.filter((c) => c.text);
+  if (said.length) {
     const card = el("section", "card");
     card.append(el("h2", null, "What you said"));
-    for (const c of st.spoken) {
+    for (const c of said) {
       const q = el("div", "quote");
       q.append(el("div", "muted", fmtTime(c.date)), el("div", "said", "“" + c.text + "”"));
       card.append(q);
@@ -963,7 +1256,12 @@ if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
   $("toggle").disabled = true;
 }
 render();
-refresh();
+// Sorting starts by itself unless the last attempt never finished (the page may have run out of memory).
+const sortingCrashed = !!prefs.get().sorting;
+refresh().then(() => {
+  if (!sortingCrashed) sortAll();
+  else $("sortStatus").textContent = "Sorting stopped unexpectedly last time. Tap the button to carry on.";
+});
 
 // Safari and home-screen apps hold on to old copies of the page, so ask the server directly.
 $("version").textContent = "Version " + APP_VERSION;
