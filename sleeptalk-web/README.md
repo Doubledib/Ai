@@ -34,6 +34,10 @@ cough or sneeze, fart/burp/hiccup, or other noise. Sorting runs by itself after 
 when the app opens. The Recordings tab can show one kind at a time, and only recordings sorted
 as talking are sent to the speech-to-text step.
 
+Dog barks get their own label too. Recordings are played back and saved louder than they were
+captured: each one is lifted until its loudest moments are near full volume (up to 80 times),
+which also raises the background hiss. The stored originals are not changed.
+
 The **Loudness of each recording** graph draws one bar per recording in time order; tap a bar
 to bring that recording up with Play, or use **Jump to the loudest**. The dB figures are
 relative to the microphone's quietest level, not calibrated sound pressure.
