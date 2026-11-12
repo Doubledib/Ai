@@ -207,7 +207,7 @@
 <script>
 "use strict";
 
-const APP_VERSION = "5";
+const APP_VERSION = "6";
 
 // ---- Tuning ----
 const PRE_ROLL_S = 5;        // audio always held in memory, saved in front of each sound
@@ -284,13 +284,13 @@ const S = {
   running: false, stream: null, ctx: null, nodes: [], analyser: null, levelBuf: null,
   marginDb: 12, armTime: 0, sessionStart: 0, noiseFloor: -50, loudStreak: 0,
   preRoll: [], preRollS: 0, clip: null, lastBlock: 0, wakeLock: null,
-  hiddenAt: 0, pausedMs: 0, saved: 0, stopAt: 0, heardS: 0, peakOver: 0, ignored: 0, rule: SENSITIVITY[4], ratio: 3, outRate: 16000, watchdog: 0, heartbeat: 0,
+  hiddenAt: 0, pausedMs: 0, saved: 0, stopAt: 0, heardS: 0, peakOver: 0, ignored: 0, events: [], resumeTries: 0, rule: SENSITIVITY[4], ratio: 3, outRate: 16000, watchdog: 0, heartbeat: 0,
 };
 
 async function start() {
   S.marginDb = Number($("sensitivity").value);
   S.rule = SENSITIVITY[S.marginDb] || SENSITIVITY[12];
-  S.heardS = 0; S.peakOver = 0; S.ignored = 0;
+  S.heardS = 0; S.peakOver = 0; S.ignored = 0; S.events = []; S.resumeTries = 0;
   const delayMin = Number($("delay").value);
   prefs.set({ s: $("sensitivity").value, d: $("delay").value, stopOn: $("stopOn").checked, stopAt: $("stopAt").value });
   $("player").pause();
@@ -327,12 +327,19 @@ function nextStopTime() {
   return t.getTime();
 }
 
+/** Notes when and why listening stopped or came back, for the morning. */
+function logEvent(what) {
+  if (!S.sessionStart || S.events.length >= 40) return;
+  S.events.push({ t: Date.now(), what });
+  saveSession();
+}
+
 function saveSession(endedAt) {
   if (!S.sessionStart) return Promise.resolve();
   const paused = S.pausedMs + (S.hiddenAt ? Date.now() - S.hiddenAt : 0);
   return store("sessions", "readwrite", (s) => s.put({
     id: String(S.sessionStart), start: S.sessionStart, armed: S.armTime, end: endedAt || Date.now(), pausedMs: paused,
-    heardS: S.heardS, peakOver: S.peakOver, ignored: S.ignored, marginDb: S.marginDb,
+    heardS: S.heardS, peakOver: S.peakOver, ignored: S.ignored, marginDb: S.marginDb, events: S.events,
   })).catch(() => {});
 }
 
@@ -383,6 +390,7 @@ async function stop(scheduled) {
     showNotice("Listening was paused for about " + Math.round(S.pausedMs / 60000) +
       " min tonight because the screen was off or another app was open.");
   }
+  logEvent(scheduled === true ? "Stopped at the set time" : "Stopped by you");
   if (scheduled === true) showNotice("Stopped at " + fmtTime(S.stopAt) + " as set. The microphone is off.");
   await saveSession(scheduled === true ? S.stopAt : 0);
   S.sessionStart = 0;
@@ -484,8 +492,16 @@ async function lockScreenOn() {
     return;
   }
   try {
-    S.wakeLock = await navigator.wakeLock.request("screen");
+    const lock = S.wakeLock = await navigator.wakeLock.request("screen");
+    // iOS can take the lock away on its own; take it back while the page is still showing.
+    lock.addEventListener("release", () => {
+      if (!S.running || S.wakeLock !== lock) return;
+      S.wakeLock = null;
+      logEvent("The keep-screen-on lock was taken away by iOS");
+      if (!document.hidden) lockScreenOn();
+    });
   } catch {
+    logEvent("The screen could not be kept on");
     showNotice("The screen could not be kept on. Set Settings › Display & Brightness › Auto-Lock to Never for tonight (Low Power Mode also blocks this).");
   }
 }
@@ -495,9 +511,10 @@ document.addEventListener("visibilitychange", async () => {
   if (document.hidden) {
     S.hiddenAt = Date.now();
     finishClip();
-    saveSession();
+    logEvent("The page went out of view (phone locked or another app opened)");
   } else {
     if (S.hiddenAt) { S.pausedMs += Date.now() - S.hiddenAt; S.hiddenAt = 0; }
+    logEvent("The page came back into view");
     await lockScreenOn();
     checkAlive();
   }
@@ -510,18 +527,26 @@ async function checkAlive() {
   if (!S.running || document.hidden || reopening) return;
   const track = S.stream && S.stream.getAudioTracks()[0];
   const stalled = Date.now() - S.lastBlock > 3000;
-  if (!stalled && track && track.readyState === "live") return;
+  if (!stalled && track && track.readyState === "live") { S.resumeTries = 0; return; }
   reopening = true;
   try {
-    if (S.ctx && S.ctx.state !== "running" && track && track.readyState === "live") {
+    // First try the gentle fix; if audio still is not flowing next time round, reopen the microphone.
+    if (S.resumeTries === 0 && S.ctx && S.ctx.state !== "running" && track && track.readyState === "live") {
+      S.resumeTries = 1;
+      logEvent("Audio was interrupted (" + S.ctx.state + "); resuming");
       await S.ctx.resume();
       S.lastBlock = Date.now();
     } else {
+      if (S.resumeTries < 3) logEvent("The microphone stopped delivering sound; reopening it");
+      S.resumeTries++;
       closeMic();
       await openMic();
+      if (S.resumeTries >= 3) logEvent("The microphone is working again");
+      showNotice("");
     }
-  } catch {
-    showNotice("The microphone stopped and could not be restarted. Tap Stop, then start again.");
+  } catch (err) {
+    if (S.resumeTries === 3) logEvent("The microphone could not be reopened (" + (err && err.name || "error") + "); still retrying");
+    showNotice("The microphone stopped. Trying to restart it…");
   }
   reopening = false;
 }
@@ -884,6 +909,10 @@ function renderInsights(clips, sessions) {
       "The microphone was live for " + fmtDuration(st.listened) + " of " + fmtDuration(st.span) + "." +
       (missed > 120000 ? " For the rest, iOS had it switched off, usually because the phone locked or another app was open. Nothing can be recorded during that time." : "")));
     card.append(el("p", "muted", "Loudest moment: " + Math.round(session.peakOver) + " dB above the room’s background. A sound needed " + session.marginDb + " dB to be saved."));
+    if (session.events && session.events.length) {
+      card.append(el("p", "muted", "What happened during the night:"));
+      for (const e of session.events.slice(-14)) card.append(el("p", "muted", fmtTime(e.t) + "  " + e.what));
+    }
     if (session.ignored) card.append(el("p", "muted", session.ignored + " very short bump" + (session.ignored === 1 ? " was" : "s were") + " heard and not kept."));
     box.append(card);
   } else if (session.pausedMs > 60000) {
