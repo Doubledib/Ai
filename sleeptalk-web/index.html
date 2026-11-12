@@ -79,7 +79,7 @@
   .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; min-width: 0; }
   .tile .num { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
   .tile .lbl { color: var(--muted); font-size: 13px; margin-top: 4px; }
-  .chart { display: grid; gap: 8px; }
+  .chart { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .plot { display: flex; align-items: flex-end; gap: 2px; height: 120px; border-bottom: 1px solid var(--line); position: relative; }
   .plot .max { position: absolute; top: 0; left: 0; font-size: 11px; color: var(--muted); }
   .bar { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; background: none; border-radius: 0; padding: 0; }
@@ -93,8 +93,8 @@
 
   .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
-  .graphWrap { position: relative; }
-  #graphScroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .graphWrap { position: relative; min-width: 0; }
+  #graphScroll { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
   #graph { display: block; cursor: pointer; }
   .ylab { position: absolute; right: 0; font-size: 11px; color: var(--muted); background: rgba(21, 24, 41, 0.8); padding: 0 4px; border-radius: 4px; pointer-events: none; font-variant-numeric: tabular-nums; }
   #picked .clip { border-top: 0; padding: 0; }
@@ -257,7 +257,7 @@
 <script>
 "use strict";
 
-const APP_VERSION = "7";
+const APP_VERSION = "8";
 
 // ---- Tuning ----
 const PRE_ROLL_S = 5;        // audio always held in memory, saved in front of each sound
